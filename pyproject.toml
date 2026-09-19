@@ -7,8 +7,11 @@ name = "ngsolve_gui"
 dynamic = ["version"]
 dependencies = [
     "ngapp>=0.4.2",
-    "webgpu>=1.4.0",
+    "webgpu>=1.5.6",
+    "ngsolve_webgpu>=0.5.3",
+    "ngsolve",
     "numpy",
+    "anywidget",
     "psutil; sys_platform != 'emscripten'",
     "requests; sys_platform != 'emscripten'",
 ]
