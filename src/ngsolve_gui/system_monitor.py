@@ -63,6 +63,11 @@ def _ensure_psutil():
         return False
 
 
+def available():
+    """System monitor needs psutil (not available e.g. in pyodide)."""
+    return _ensure_psutil()
+
+
 def _ensure_nvml():
     """Initialise pynvml once, cache device handle and function references."""
     global _nvml_tried, _nvml_ready, _nvml_handle

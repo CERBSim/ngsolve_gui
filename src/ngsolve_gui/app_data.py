@@ -16,19 +16,10 @@ class AppData:
         self._gpu_cache = {}
         self._clipping = Clipping()
         self._cameras = {}
-        self._last_camera = None
 
     @property
     def clipping(self):
         return self._clipping
-
-    @property
-    def camera(self):
-        """The camera handed out most recently.
-        """
-        if self._last_camera is None:
-            self._last_camera = Camera()
-        return self._last_camera
 
     def get_shared_camera(self, group):
         """Camera shared by all views of the same mesh/geometry.
@@ -39,12 +30,10 @@ class AppData:
         fit, otherwise it adopts the view the group already has.
         """
         if group is None:
-            self._last_camera = Camera()
-            return self._last_camera, True
+            return Camera(), True
         key = id(group)
         entry = self._cameras.get(key)
         if entry is not None:
-            self._last_camera = entry[1]
             return entry[1], False
         camera = Camera()
         try:
@@ -52,7 +41,6 @@ class AppData:
         except TypeError:
             ref = group          # not weak-referenceable: hold it instead
         self._cameras[key] = [ref, camera]
-        self._last_camera = camera
         return camera, True
 
     def get_mesh_gpu_data(self, mesh):

@@ -395,9 +395,7 @@ class MeshComponent(WebgpuTab):
                 subdiv = 3
             else:
                 subdiv = 1
-        if subdiv != self.mdata.subdivision:
-            self.mdata.subdivision = subdiv
-            self.mdata.set_needs_update()
+        self.mdata.subdivision = subdiv
         self.wireframe = MeshWireframe2d(self.mdata, clipping=self.clipping)
         self.wireframe.active = self.wireframe_visible.value
         saved_edge_colors = self.edge_colors.value

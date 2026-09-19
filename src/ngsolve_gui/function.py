@@ -4,7 +4,6 @@ from .webgpu_tab import WebgpuTab, _usersettings
 from .region_state import RegionState
 from . import cerbsim_style as cb
 import ngsolve as ngs
-import copy
 import math
 
 
@@ -988,9 +987,9 @@ class FunctionComponent(WebgpuTab):
                 self.deformation, self.region_or_mesh,
                 order=self.deformation_order
             )
-            mdata = copy.copy(deform_data.mesh_data)
-            self.mdata = mdata
-            deform_data.mesh_data = mdata
+            if getattr(self, "mdata", None) is None:
+                self.mdata = MeshData(self.region_or_mesh)
+            mdata = self.mdata
             mdata.deformation_data = deform_data
             mdata.deformation_scale = (
                 self.deformation_scale.value * self.deformation_scale2.value
@@ -999,9 +998,8 @@ class FunctionComponent(WebgpuTab):
                 mdata.deformation_scale = 0.0
             func_data.mesh_data = mdata
         subdiv = self._subdivision_override()
-        if subdiv is None or subdiv != mdata.subdivision:
+        if subdiv is not None:
             mdata.subdivision = subdiv
-            mdata.set_needs_update()
         self.wireframe = MeshWireframe2d(mdata, clipping=self.clipping)
         self.wireframe.active = self.wireframe_visible.value
 
