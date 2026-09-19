@@ -14,7 +14,7 @@ from .property_panel import empty_property_panel
 from .prop_widgets import Segmented
 from . import cerbsim_style as cb
 from .cerbsim_style import theme, kb_theme, flex_fill, panel_full
-from .system_monitor import SystemMonitor
+from .system_monitor import SystemMonitor, available as system_monitor_available
 from .footer import StatusFooter
 
 
@@ -276,7 +276,7 @@ class NGSolveGui(App):
             ui_class=cb.brand,
         )
 
-        self.system_monitor = SystemMonitor()
+        self.system_monitor = SystemMonitor() if system_monitor_available() else None
 
         # -- Redraw throttling state --
         self._redraw_lock = threading.Lock()
@@ -289,8 +289,7 @@ class NGSolveGui(App):
             ngs_logo,
             file_group,
             QSpace(),
-            self.system_monitor,
-            Div(ui_class=cb.tb_sep),
+            *([self.system_monitor, Div(ui_class=cb.tb_sep)] if self.system_monitor is not None else []),
             view_group,
             ui_class=cb.app_bar,
         )

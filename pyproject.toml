@@ -5,7 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ngsolve_gui"
 dynamic = ["version"]
-dependencies = ["ngapp>=0.4.2", "ngsolve_webgpu>=0.4.0", "webgpu>=1.4.0", "ngsolve", "numpy", "psutil", "anywidget", "requests"]
+dependencies = [
+    "ngapp>=0.4.2",
+    "webgpu>=1.4.0",
+    "numpy",
+    "psutil; sys_platform != 'emscripten'",
+    "requests; sys_platform != 'emscripten'",
+]
 
 [project.optional-dependencies]
 gpu-monitor = ["pynvml"]
