@@ -5,6 +5,7 @@ RUN pip install --no-cache-dir --break-system-packages \
     "webgpu @ git+https://github.com/CERBSim/webgpu.git" \
     "ngsolve_webgpu @ git+https://github.com/CERBSim/ngsolve_webgpu.git" \
     "ngapp[e2e] @ git+https://github.com/CERBSim/ngapp.git" \
+    "cerbsim_ngapp_style @ git+https://github.com/CERBSim/cerbsim_ngapp_style.git" \
     plotly
 RUN pip install --no-cache-dir --break-system-packages --pre --upgrade ngsolve
 RUN pip install --no-cache-dir --break-system-packages --no-deps .
