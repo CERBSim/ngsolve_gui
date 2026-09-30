@@ -291,9 +291,8 @@ class WebgpuTab(PropertyPanelMixin, Div):
     def _on_mousemove(self, ev):
         clipping = self.clipping
         if ev["buttons"] & 2:
-            offset = clipping.offset
-            offset += ev["movementY"] * 0.00002
-            clipping.set_offset(offset)
+            self._set_clip_offset(
+                clipping.offset + ev["movementY"] * 0.0002 * self._clip_factor())
             self.scene.render()
         if ev["buttons"] & 1:
             import numpy.linalg
@@ -315,10 +314,8 @@ class WebgpuTab(PropertyPanelMixin, Div):
             self.scene.render()
 
     def _on_wheel(self, ev):
-        clipping = self.clipping
-        offset = clipping.offset
-        offset += ev["deltaY"] * 0.0008
-        clipping.set_offset(offset)
+        self._set_clip_offset(
+            self.clipping.offset + ev["deltaY"] * 0.0005 * self._clip_factor())
         self.scene.render()
 
     @property
@@ -799,6 +796,13 @@ class WebgpuTab(PropertyPanelMixin, Div):
         self._clip_offset_val.ui_children = [f"{v:.2f}"]
         self.clipping.set_offset(v * self._clip_factor())
         self.wgpu.scene.render()
+
+    def _set_clip_offset(self, offset):
+        self.clipping.set_offset(offset)
+        if getattr(self, "_clip_offset", None) is not None:
+            v = max(-1.0, min(1.0, offset / self._clip_factor()))
+            self._clip_offset.ui_model_value = v
+            self._clip_offset_val.ui_children = [f"{v:.2f}"]
 
     # -- Fullscreen + view bookmarks (in the tool dock) --------------------
 
