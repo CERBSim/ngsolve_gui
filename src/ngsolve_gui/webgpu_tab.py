@@ -112,8 +112,13 @@ class WebgpuTab(PropertyPanelMixin, Div):
                 saved_settings.get("clipping_enabled", False), "clipping_enabled"
             )
             self.use_global_clipping = Observable(
-                saved_settings.get("use_global_clipping", True), "use_global_clipping"
+                saved_settings.get("use_global_clipping",
+                                   data.get("global_clipping", True) if isinstance(data, dict) else True),
+                "use_global_clipping",
             )
+        # used instead of the shared plane while use_global_clipping is off
+        from webgpu.clipping import Clipping
+        self._local_clipping = Clipping()
 
         self.pick_overlay = PickOverlay()
 
@@ -154,20 +159,25 @@ class WebgpuTab(PropertyPanelMixin, Div):
                     pass
         self.scene.input_handler.on_click(_on_click_select)
 
-        self.clipping.center = 0.5 * (
-            self.scene.bounding_box[1] + self.scene.bounding_box[0]
-        )
+        if self.clipping.mode == self.clipping.Mode.DISABLED:
+            self.clipping.center = 0.5 * (
+                self.scene.bounding_box[1] + self.scene.bounding_box[0]
+            )
         if "clipping" in data:
             clipping = data["clipping"]
             if bool(clipping):
                 self.clipping.mode = self.clipping.Mode.PLANE
             if isinstance(clipping, dict):
                 if "normal" in clipping:
-                    self.clipping.normal = clipping["normal"]
+                    self.clipping.normal = list(clipping["normal"])
                 if "center" in clipping:
-                    self.clipping.center = clipping["center"]
+                    self.clipping.center = list(clipping["center"])
                 if "offset" in clipping:
                     self.clipping.offset = clipping["offset"]
+            if bool(clipping):
+                # the scene is already drawn, push the plane to the gpu uniform
+                self.clipping_enabled.value = True
+                self.clipping.enable_clipping(True)
 
         self.scene.input_handler.on_dblclick(self._on_dblclick, ctrl=True)
         self.scene.input_handler.on_drag(self._on_mousemove, ctrl=True)
@@ -192,6 +202,7 @@ class WebgpuTab(PropertyPanelMixin, Div):
         self.use_global_clipping.on_change(
             lambda v, _o: self._set_tool_active(self._clip_global_tool, v)
         )
+        self.use_global_clipping.on_change(self._apply_global_clipping)
         if hasattr(self, "wireframe_visible") and self._wf_tool is not None:
             self.wireframe_visible.on_change(
                 lambda v, _o: self._set_tool_active(self._wf_tool, v)
@@ -480,7 +491,15 @@ class WebgpuTab(PropertyPanelMixin, Div):
 
     @property
     def clipping(self):
+        glob = getattr(self, "use_global_clipping", None)
+        if glob is not None and not glob.value and hasattr(self, "_local_clipping"):
+            return self._local_clipping
         return self.app_data.clipping
+
+    def _apply_global_clipping(self, val, _old):
+        # renderers keep the clipping object they were built with
+        self.clipping.enable_clipping(self.clipping_enabled.value)
+        self.draw()
 
     @property
     def camera(self):

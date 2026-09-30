@@ -59,6 +59,7 @@ class FunctionComponent(WebgpuTab):
         self.region_or_mesh = data["mesh"]
         self.draw_vol = data.get("draw_vol", True)
         self.draw_surf = data.get("draw_surf", True)
+        self.draw_edges = data.get("edges", False)
         self.mesh = (
             self.region_or_mesh.mesh
             if isinstance(self.region_or_mesh, ngs.Region)
@@ -197,13 +198,13 @@ class FunctionComponent(WebgpuTab):
             s.get("contact_enabled", True), "contact_enabled"
         )
         self.fieldlines_num_lines = Observable(
-            s.get("fieldlines_num_lines", 100), "fieldlines_num_lines", converter=int
+            s.get("fieldlines_num_lines", data.get("fieldlines_num_lines", 100)), "fieldlines_num_lines", converter=int
         )
         self.fieldlines_length = Observable(
-            s.get("fieldlines_length", 0.5), "fieldlines_length", converter=float
+            s.get("fieldlines_length", data.get("fieldlines_length", 0.5)), "fieldlines_length", converter=float
         )
         self.fieldlines_thickness = Observable(
-            s.get("fieldlines_thickness", 0.0015), "fieldlines_thickness", converter=float
+            s.get("fieldlines_thickness", data.get("fieldlines_thickness", 0.0015)), "fieldlines_thickness", converter=float
         )
         self.fieldlines_direction = Observable(
             s.get("fieldlines_direction", 0), "fieldlines_direction", converter=int
@@ -1001,6 +1002,13 @@ class FunctionComponent(WebgpuTab):
         if subdiv is not None:
             mdata.subdivision = subdiv
         self.wireframe = MeshWireframe2d(mdata, clipping=self.clipping)
+        # geometry edges (1d mesh elements)
+        self.edges = None
+        if self.draw_edges:
+            self.edges = MeshSegments(mdata, clipping=self.clipping)
+            # edges=<float> sets the line thickness
+            if not isinstance(self.draw_edges, bool):
+                self.edges.thickness = float(self.draw_edges)
         self.wireframe.active = self.wireframe_visible.value
 
         autoscale = self.colormap_autoscale.value
@@ -1150,6 +1158,7 @@ class FunctionComponent(WebgpuTab):
                 self.elements2d,
                 self.facet_renderer,
                 self.wireframe,
+                self.edges,
                 # colorbar is shown in the UI (FieldSummary), not in the scene
                 self.contact_pairs,
                 self.clipping_vectors,

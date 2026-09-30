@@ -1,3 +1,4 @@
+import threading
 import weakref
 
 from ngsolve_webgpu import *
@@ -16,6 +17,8 @@ class AppData:
         self._gpu_cache = {}
         self._clipping = Clipping()
         self._cameras = {}
+        self._update_timer = None
+        self._update_timer_lock = threading.Lock()
 
     @property
     def clipping(self):
@@ -92,6 +95,7 @@ class AppData:
 
     def add_tab(self, title: str, cls: type, *args, **kwargs):
         name = title.lower().replace(" ", "_")
+        self._cancel_scheduled_update()
         # Resolve type key and icon from registry
         from .registry import get_registry
 
@@ -113,9 +117,31 @@ class AppData:
         component = cls(name, *args, **kwargs)
         self._data["tabs"][name]["component"] = component
         self.active_tab = name
+        self._schedule_update()
+        return component
+
+    def _schedule_update(self, delay=0.1):
+        # coalesce the updates of a burst of Draw calls, so only the tab that
+        # ends up active gets mounted (and builds its scene) right away
+        if self._update is None:
+            return
+        self._cancel_scheduled_update()
+        with self._update_timer_lock:
+            self._update_timer = threading.Timer(delay, self._run_scheduled_update)
+            self._update_timer.daemon = True
+            self._update_timer.start()
+
+    def _cancel_scheduled_update(self):
+        with self._update_timer_lock:
+            if self._update_timer is not None:
+                self._update_timer.cancel()
+                self._update_timer = None
+
+    def _run_scheduled_update(self):
+        with self._update_timer_lock:
+            self._update_timer = None
         if self._update is not None:
             self._update()
-        return component
 
     def get_tabs(self):
         """

@@ -32,6 +32,40 @@ class RegionsSection(Section):
         self._bnd_state_btns = {}
         self._bnd_labels = {}
 
+        self._bnd_rows = {}
+        self._mats, self._bnds = mats, bnds
+        self._built = False
+
+        show_all = QBtn(
+            QTooltip("Show all regions"),
+            ui_icon="mdi-eye-refresh-outline", ui_flat=True, ui_dense=True,
+            ui_round=True, ui_size="sm",
+        )
+        show_all.on_click(lambda e=None: comp.show_all_regions())
+
+        super().__init__(
+            icon="mdi-layers-outline", title="Regions",
+            opened=bool(st.any_hidden()), head_actions=[show_all],
+        )
+        if self._open:
+            self._build_rows()
+
+        # Reflect programmatic changes (keybindings, undo, show-all).
+        comp.hidden_regions.on_change(self._sync_from_state)
+        comp.boundary_overrides.on_change(self._sync_from_state)
+
+    # -- rows --------------------------------------------------------------
+
+    def _set_open(self, val):
+        # rows are built on first open: meshes with many regions would
+        # otherwise send thousands of components for every new tab
+        if val and not self._built:
+            self._build_rows()
+        super()._set_open(val)
+
+    def _build_rows(self):
+        self._built = True
+        mats, bnds = self._mats, self._bnds
         rows = []
         if len(mats) + len(bnds) > 10:
             filt = QInput(
@@ -52,24 +86,7 @@ class RegionsSection(Section):
             body = [hint] + [self._make_bnd_row(name) for name in bnds]
             rows.append(MoreDisclosure(
                 *body, label_more="Boundaries", label_less="Boundaries"))
-
-        show_all = QBtn(
-            QTooltip("Show all regions"),
-            ui_icon="mdi-eye-refresh-outline", ui_flat=True, ui_dense=True,
-            ui_round=True, ui_size="sm",
-        )
-        show_all.on_click(lambda e=None: comp.show_all_regions())
-
-        super().__init__(
-            *rows, icon="mdi-layers-outline", title="Regions",
-            opened=bool(st.any_hidden()), head_actions=[show_all],
-        )
-
-        # Reflect programmatic changes (keybindings, undo, show-all).
-        comp.hidden_regions.on_change(self._sync_from_state)
-        comp.boundary_overrides.on_change(self._sync_from_state)
-
-    # -- rows --------------------------------------------------------------
+        self._body.ui_children = rows
 
     def _make_mat_row(self, name):
         st = self.comp.region_state

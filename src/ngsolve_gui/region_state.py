@@ -40,6 +40,7 @@ class RegionState:
         else:
             self.boundaries = []
             self.fd_doms = []
+        self._cache_key = None
 
     # -- name helpers ------------------------------------------------------
 
@@ -66,6 +67,15 @@ class RegionState:
         )
 
     def surf_alphas(self):
+        # cached: the regions panel queries this once per boundary row
+        key = (frozenset(self.hidden), frozenset(self.overrides.items()))
+        if key != self._cache_key:
+            self._alphas = self._compute_surf_alphas()
+            self._effective = {n for n, a in zip(self.boundaries, self._alphas) if a > 0}
+            self._cache_key = key
+        return self._alphas.copy()
+
+    def _compute_surf_alphas(self):
         if self.mesh.dim != 3:
             # 2D: the drawn surface elements ARE the materials.
             return self.vol_alphas()
@@ -90,10 +100,8 @@ class RegionState:
 
     def boundary_effective(self, name):
         """Whether any face descriptor with this name is currently drawn."""
-        alphas = self.surf_alphas()
-        return any(
-            alphas[i] > 0 for i, n in enumerate(self.boundaries) if n == name
-        )
+        self.surf_alphas()
+        return name in self._effective
 
     def visible_boundary_names(self):
         alphas = self.surf_alphas()
