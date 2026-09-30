@@ -107,7 +107,7 @@ class FunctionComponent(WebgpuTab):
         # -- Observable properties ------------------------------------------
         s = saved
         self.wireframe_visible = Observable(
-            s.get("wireframe_visible", True), "wireframe_visible"
+            s.get("wireframe_visible", data.get("wireframe", True)), "wireframe_visible"
         )
         self.elements2d_visible = Observable(
             s.get("elements2d_visible", True), "elements2d_visible"
