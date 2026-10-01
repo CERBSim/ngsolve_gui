@@ -697,6 +697,13 @@ class WebgpuTab(PropertyPanelMixin, Div):
         self._link_tool = self._build_camera_link_tool()
         if self._link_tool is not None:
             tools.append(self._link_tool)
+        if self._supports_clipping():
+            for axis, plane in (("x", "yz"), ("y", "xz"), ("z", "xy")):
+                btn = Div(Div(axis.upper(), ui_style="font-weight: 600; font-size: 12px;"),
+                          QTooltip(f"Look along {axis.upper()}  ·  v {axis}  (again: opposite side)"),
+                          ui_class=str(cb.vp_tool))
+                btn.on("click", lambda e=None, plane=plane: self.set_view(plane))
+                tools.append(btn)
         if hasattr(self, "wireframe_visible"):
             self._wf_tool = self._vtool("mdi-grid", "Wireframe  ·  w", self.toggle_wireframe)
             self._set_tool_active(self._wf_tool, self.wireframe_visible.value)
