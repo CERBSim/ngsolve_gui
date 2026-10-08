@@ -43,6 +43,9 @@ def main():
         "--dev-frontend", action="store_true", help="Run frontend in development mode"
     )
     parser.add_argument(
+        "--no-browser", action="store_true", help="Don't start a browser window"
+    )
+    parser.add_argument(
         "-m",
         dest="module",
         metavar="MODULE",
@@ -76,4 +79,5 @@ def main():
             watch_code=args.dev,
             dev_frontend=args.dev_frontend,
             app_args=app_args,
+            start_browser=not args.no_browser,
         )
