@@ -745,7 +745,10 @@ class WebgpuTab(PropertyPanelMixin, Div):
 
     def _build_camera_link_tool(self):
         """Toggle between the mesh/geometry-wide camera and one just for this view."""
-        if self._camera_group is None:
+        # A camera handed over by the caller (a view replacing another one) is
+        # shared as well; keeping the tool also keeps the dock layout stable.
+        given = self.data.get("camera") if isinstance(self.data, dict) else None
+        if self._camera_group is None and not isinstance(given, Camera):
             return None
         self._link_icon = QIcon(ui_name="mdi-link-variant")
         self._link_tip = self._dock_tip("")
