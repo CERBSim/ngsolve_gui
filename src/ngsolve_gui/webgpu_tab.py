@@ -376,6 +376,7 @@ class WebgpuTab(PropertyPanelMixin, Div):
         renderer.on_select(lambda ev, k=kind: self._on_pick_select(ev, k))
 
     def _on_pick_hover(self, ev):
+        self._pointer_inside = True
         if ev["buttons"] == 0 and self.scene.canvas is not None and self.scene.canvas.select_texture is not None:
             self._shift_hover = ev.get("shiftKey", False)
             try:
@@ -384,6 +385,7 @@ class WebgpuTab(PropertyPanelMixin, Div):
                 pass
 
     def _on_pick_out(self, ev):
+        self._pointer_inside = False
         if not hasattr(self, '_pick_mesh'):
             return
         self._last_pick = None
@@ -398,6 +400,10 @@ class WebgpuTab(PropertyPanelMixin, Div):
         self.scene._render_highlight()
 
     def _on_pick_select(self, event, kind="surface"):
+        # the readback of a hover pick can arrive after the pointer left the
+        # view (e.g. onto the colorbar legend); its info would then stay up
+        if not getattr(self, "_pointer_inside", True):
+            return
         try:
             result = MeshPickResult(event, self._pick_mesh, self.scene.options, kind=kind)
             self._last_pick = result
