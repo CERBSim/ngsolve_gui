@@ -50,9 +50,15 @@ class Section(Div):
         self._head_main = Div(*main, ui_class=cb.psec_head_main)
         self._head_main.on("click", lambda e=None: self._on_head_click())
         head_children = [self._head_main]
+        head_style = None
         if head_actions:
             head_children.append(Div(*head_actions, ui_class=cb.psec_head_actions))
-        self._head = Div(*head_children, ui_class=cb.psec_head)
+            # In a narrow panel the actions wrap below the title instead of
+            # covering it.
+            self._head_main.ui_style = "min-width: max-content; min-height: 28px;"
+            head_style = ("flex-wrap: wrap; height: auto; min-height: 40px; "
+                          "padding-top: 6px; padding-bottom: 6px; row-gap: 6px;")
+        self._head = Div(*head_children, ui_class=cb.psec_head, ui_style=head_style)
         self._body = Div(*body, ui_class=cb.psec_body)
 
         super().__init__(self._head, self._body, ui_class=cb.psec)
