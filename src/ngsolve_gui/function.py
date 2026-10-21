@@ -927,6 +927,13 @@ class FunctionComponent(WebgpuTab):
     def toggle_autoscale(self):
         self.colormap_autoscale.toggle()
 
+    def _sync_autoscale_range(self):
+        """Colormap callback: the renderers widen the autoscaled range while
+        rendering (also later than a blocking redraw returns in the browser)."""
+        if self.colormap_autoscale.value:
+            self.colormap_min.value = float(self.colormap.minval)
+            self.colormap_max.value = float(self.colormap.maxval)
+
     def toggle_discrete(self):
         self.colormap_discrete.toggle()
 
@@ -1018,6 +1025,7 @@ class FunctionComponent(WebgpuTab):
         self.colormap = Colormap(minval=minval, maxval=maxval, colormap=self.colormap_name.value)
         self.colormap.autoscale = autoscale
         self.colormap.discrete = discrete
+        self.colormap._callbacks.append(self._sync_autoscale_range)
         self.clipping_vectors = None
         self.lic = None
         # True when self.lic is a SurfaceLIC (2D) that REPLACES the flat surface
