@@ -927,6 +927,17 @@ class FunctionComponent(WebgpuTab):
     def toggle_autoscale(self):
         self.colormap_autoscale.toggle()
 
+    def set_component(self, component):
+        """Color by the norm (-1) or by one component of a vector field."""
+        self._component = component
+        for r in self._component_renderers():
+            r.set_component(component)
+        # the autoscaled range reaches the legend through _sync_autoscale_range
+        self.wgpu.scene.render()
+
+    def _component_renderers(self):
+        return [r for r in (self.elements2d, self.clippingcf, self.lic) if r is not None]
+
     def _sync_autoscale_range(self):
         """Colormap callback: the renderers widen the autoscaled range while
         rendering (also later than a blocking redraw returns in the browser)."""
@@ -1128,6 +1139,10 @@ class FunctionComponent(WebgpuTab):
             for r in self._complex_renderers:
                 r._scene = self.scene
                 r.set_complex_mode(self.complex_mode.value)
+        component = getattr(self, "_component", -1)
+        if component != -1:
+            for r in self._component_renderers():
+                r.gpu_objects.settings.component = component
         self.colorbar = Colorbar(self.colormap)
         self.colorbar.width = 0.8
         self.colorbar.position = (-0.5, 0.9)

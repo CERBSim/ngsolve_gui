@@ -330,17 +330,7 @@ class ColorbarLegend(Div):
         self._set_component(val)
 
     def _set_component(self, val):
-        comp = self._comp
-        idx = -1 if val == "norm" else int(val)
-        try:
-            if comp.elements2d is not None:
-                comp.elements2d.set_component(idx)
-            if comp.clippingcf is not None:
-                comp.clippingcf.set_component(idx)
-            comp.colorbar.set_needs_update()
-            comp.wgpu.scene.render()
-        except Exception:
-            pass
+        self._comp.set_component(-1 if val == "norm" else int(val))
 
     def _set_min(self, event):
         try:
@@ -563,17 +553,7 @@ class FieldSummary(Div):
         self._auto_icon.ui_name = self._lock_icon(bool(v))
 
     def _set_component(self, val):
-        comp = self.comp
-        idx = -1 if val == "norm" else int(val)
-        try:
-            if comp.elements2d is not None:
-                comp.elements2d.set_component(idx)
-            if comp.clippingcf is not None:
-                comp.clippingcf.set_component(idx)
-            comp.colorbar.set_needs_update()
-            comp.wgpu.scene.render()
-        except Exception:
-            pass
+        self.comp.set_component(-1 if val == "norm" else int(val))
 
     def _set_min(self, event):
         try:

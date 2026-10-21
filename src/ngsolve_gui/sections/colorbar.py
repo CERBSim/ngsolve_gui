@@ -88,13 +88,7 @@ class ColorbarSection(Section):
 
     def _update_color_component(self, event):
         idx = self.color_component.ui_options.index(self.color_component.ui_model_value)
-        comp = self.comp
-        if comp.elements2d is not None:
-            comp.elements2d.set_component(idx - 1)   # idx 0 (|u|) → -1 = magnitude
-        if comp.clippingcf is not None:
-            comp.clippingcf.set_component(idx - 1)
-        comp.colorbar.set_needs_update()
-        comp.wgpu.scene.render()
+        self.comp.set_component(idx - 1)   # idx 0 (|u|) → -1 = magnitude
 
     def _update_ncolors(self, event):
         try:
