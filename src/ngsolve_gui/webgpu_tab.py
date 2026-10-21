@@ -28,16 +28,6 @@ def sync_default_viewport_clear():
     set_default_clear_color(Color(*VIEWPORT_CLEAR[key], 1))
 
 
-def _unregister_observer(camera, callback):
-    """Drop *callback* from the camera's observers.
-
-    ``Camera.unregister_observer`` compares with ``is``, which never matches a
-    freshly bound method, so removing ``scene._on_camera_changed`` needs equality.
-    """
-    with camera._observers_lock:
-        camera._observers = [cb for cb in camera._observers if cb != callback]
-
-
 def _theme_scene(scene, bg_rgb, text_rgb):
     """Recursively theme a scene's overlays: Background backdrops match the
     viewport clear color; default-colored Labels (mesh stats, colorbar ticks)
@@ -558,7 +548,7 @@ class WebgpuTab(PropertyPanelMixin, Div):
             return
         old = scene.options.camera
         old.unregister_callbacks(scene.input_handler)
-        _unregister_observer(old, scene._on_camera_changed)
+        old.unregister_observer(scene._on_camera_changed)
         scene.options.camera = camera
         camera.register_observer(scene._on_camera_changed)
         scene._wire_input(camera)
