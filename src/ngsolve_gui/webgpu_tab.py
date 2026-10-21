@@ -679,9 +679,20 @@ class WebgpuTab(PropertyPanelMixin, Div):
 
     # -- Viewport tool dock + inline clipping toolbar ----------------------
 
-    def _vtool(self, icon, tip, handler):
+    def _dock_tip(self, text):
+        """Tooltip of a tool dock button, moved below the clipping bar while
+        that is shown (see _sync_clip_ui) so it does not cover it."""
+        tip = QTooltip(text, ui_anchor="bottom middle", ui_self="top middle",
+                       ui_offset=[0, 10], ui_delay=300)
+        if not hasattr(self, "_dock_tips"):
+            self._dock_tips = []
+        self._dock_tips.append(tip)
+        return tip
+
+    def _vtool(self, icon, tip, handler, dock=True):
         """A single floating viewport tool button."""
-        btn = Div(QIcon(ui_name=icon), QTooltip(tip), ui_class=str(cb.vp_tool))
+        tooltip = self._dock_tip(tip) if dock else QTooltip(tip)
+        btn = Div(QIcon(ui_name=icon), tooltip, ui_class=str(cb.vp_tool))
         btn.on("click", lambda e=None: handler())
         return btn
 
@@ -706,7 +717,7 @@ class WebgpuTab(PropertyPanelMixin, Div):
         if self._supports_clipping():
             for axis, plane in (("x", "yz"), ("y", "xz"), ("z", "xy")):
                 btn = Div(Div(axis.upper(), ui_style="font-weight: 600; font-size: 12px;"),
-                          QTooltip(f"Look along {axis.upper()}  ·  v {axis}  (again: opposite side)"),
+                          self._dock_tip(f"Look along {axis.upper()}  ·  v {axis}  (again: opposite side)"),
                           ui_class=str(cb.vp_tool))
                 btn.on("click", lambda e=None, plane=plane: self.set_view(plane))
                 tools.append(btn)
@@ -737,7 +748,7 @@ class WebgpuTab(PropertyPanelMixin, Div):
         if self._camera_group is None:
             return None
         self._link_icon = QIcon(ui_name="mdi-link-variant")
-        self._link_tip = QTooltip("")
+        self._link_tip = self._dock_tip("")
         btn = Div(self._link_icon, self._link_tip, ui_class=str(cb.vp_tool))
         btn.on("click", lambda e=None: self.toggle_camera_link())
         return btn
@@ -758,7 +769,7 @@ class WebgpuTab(PropertyPanelMixin, Div):
         self._bm_pop.ui_hidden = True
         self._bm_pop.on("mouseleave", lambda e=None: self._close_bookmarks())
         btn = Div(
-            QIcon(ui_name="mdi-bookmark-outline"), QTooltip("Saved views"), self._bm_pop,
+            QIcon(ui_name="mdi-bookmark-outline"), self._dock_tip("Saved views"), self._bm_pop,
             ui_class=str(cb.vp_tool) + " relative-position",
         )
         btn.on("click", lambda e=None: self._toggle_bookmarks())
@@ -772,17 +783,17 @@ class WebgpuTab(PropertyPanelMixin, Div):
         axis = self._current_clip_axis()
         self._clip_axis_seg = Segmented(
             [("0", "X"), ("1", "Y"), ("2", "Z")], str(axis), self._on_clip_axis)
-        flip = self._vtool("mdi-flip-horizontal", "Flip side", self._flip_clip)
+        flip = self._vtool("mdi-flip-horizontal", "Flip side", self._flip_clip, dock=False)
         self._clip_offset = QSlider(
             ui_min=-1, ui_max=1, ui_step=0.01, ui_model_value=0.0,
             ui_dense=True, ui_class=str(cb.vc_slider))
         self._clip_offset.on_update_model_value(self._on_clip_offset)
         self._clip_offset_val = Div("0.00", ui_class=str(cb.vc_o_val))
         self._clip_global_tool = self._vtool(
-            "mdi-earth", "Clip all objects (global)", self.use_global_clipping.toggle)
+            "mdi-earth", "Clip all objects (global)", self.use_global_clipping.toggle, dock=False)
         self._set_tool_active(self._clip_global_tool, self.use_global_clipping.value)
         close = self._vtool("mdi-close", "Close clipping  ·  esc",
-                            lambda: setattr(self.clipping_enabled, "value", False))
+                            lambda: setattr(self.clipping_enabled, "value", False), dock=False)
         toolbar = Div(
             Div(QIcon(ui_name="mdi-content-cut"), "Clip", ui_class=str(cb.vc_lab)),
             Div(self._clip_axis_seg, ui_class=str(cb.vc_axis)),
@@ -800,6 +811,8 @@ class WebgpuTab(PropertyPanelMixin, Div):
         self._set_tool_active(self._clip_tool, val)
         if self._clip_toolbar is not None:
             self._clip_toolbar.ui_hidden = not val
+            for tip in getattr(self, "_dock_tips", []):
+                tip.ui_offset = [0, 58 if val else 10]
 
     def _current_clip_axis(self):
         n = [abs(self.clipping.normal[i]) for i in range(3)]
