@@ -371,16 +371,20 @@ class ColorbarLegend(Div):
         self._bar.ui_style = "background: " + cb.colormap_gradient_vertical(name) + ";"
         mn, mx = self._range()
         # editable end values + read-only middle ticks
-        self.maxval.ui_model_value = self._fmt(mx)
-        self.minval.ui_model_value = self._fmt(mn)
-        self._t75.ui_children = [self._fmt(mn + 0.75 * (mx - mn))]
-        self._t50.ui_children = [self._fmt(mn + 0.5 * (mx - mn))]
-        self._t25.ui_children = [self._fmt(mn + 0.25 * (mx - mn))]
+        span = abs(mx - mn)
+        self.maxval.ui_model_value = self._fmt(mx, span)
+        self.minval.ui_model_value = self._fmt(mn, span)
+        self._t75.ui_children = [self._fmt(mn + 0.75 * (mx - mn), span)]
+        self._t50.ui_children = [self._fmt(mn + 0.5 * (mx - mn), span)]
+        self._t25.ui_children = [self._fmt(mn + 0.25 * (mx - mn), span)]
         for n, r in getattr(self, "_opts", {}).items():
             r.ui_class = self._opt_cls(n == name)
 
     @staticmethod
-    def _fmt(v):
+    def _fmt(v, span=0.0):
+        # values far below the resolution of the bar are 0 (e.g. 1e-8 next to 1)
+        if abs(v) < 1e-4 * span:
+            v = 0.0
         return f"{v:.3g}"
 
 
