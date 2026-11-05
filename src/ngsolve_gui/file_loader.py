@@ -97,6 +97,9 @@ def _build_progress_stdout():
 # Set to the thread running the embedded IPython shell, so ``input()`` can tell
 # a call from the user script apart from a call inside an interactive cell.
 _shell_thread: threading.Thread | None = None
+_shell = None
+# terminal settings before the first shell started
+_tty_settings = None
 
 
 def _install_coordinated_input():
@@ -195,12 +198,15 @@ def _launch_interactive_shell(
     if not sys.stdin.isatty():
         raise ImportError("No TTY available for IPython shell.")
 
+    global _shell_thread, _shell, _tty_settings
     fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
+    if _tty_settings is None:
+        _tty_settings = termios.tcgetattr(fd)
     _install_coordinated_input()
     from IPython.terminal.embed import InteractiveShellEmbed
 
-    ipshell = [None]
+    # a page reload creates a new app that runs the script again: keep one shell
+    reuse = _shell_thread is not None and _shell_thread.is_alive()
 
     def run_script():
         _lower_thread_priority()
@@ -214,32 +220,34 @@ def _launch_interactive_shell(
 
             traceback.print_exc()
         finally:
+            if reuse and _shell is not None:
+                _shell.user_ns.update(script_globals)
             done_event.set()
 
     worker = threading.Thread(target=run_script, name="PythonRunner", daemon=True)
     worker.start()
 
     def launch_shell():
+        global _shell
         import IPython.terminal.interactiveshell as ipt
 
         ipt.patch_stdout = _progress_patch_stdout
         _force_headless_matplotlib()
-        ipshell[0] = InteractiveShellEmbed(user_ns=script_globals)
-        ipshell[0].mainloop()
+        _shell = InteractiveShellEmbed(user_ns=script_globals)
+        _shell.mainloop()
 
-    global _shell_thread
-    t = threading.Thread(target=launch_shell, name="IPythonEmbedder", daemon=True)
-    _shell_thread = t
-    t.start()
+    if not reuse:
+        _shell_thread = threading.Thread(
+            target=launch_shell, name="IPythonEmbedder", daemon=True
+        )
+        _shell_thread.start()
 
     def exit_shell():
-        if ipshell[0] is None:
-            return
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        sys.stdout.flush()
+        # the process ends with os._exit, prompt_toolkit does not clean up the terminal
+        sys.__stdout__.write("\x1b[?2004l\x1b[?25h\n")
+        sys.__stdout__.flush()
         sys.stderr.flush()
-        ipshell[0].ask_exit()
-        ipshell[0].run_cell("import os; os._exit(0)")
+        termios.tcsetattr(fd, termios.TCSADRAIN, _tty_settings)
 
     app.on_exit(exit_shell)
     return worker

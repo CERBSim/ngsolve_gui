@@ -6,6 +6,7 @@ import threading
 import time
 
 from ngapp.components import Div, QLinearProgress, QIcon, QTooltip
+from ngapp.utils import get_environment
 
 from .cerbsim_style import (
     monitor,
@@ -278,6 +279,10 @@ class SystemMonitor(Div):
     def _poll(self):
         while self._running:
             time.sleep(self._interval)
+            # a page reload shows a new app instance
+            app = self.app
+            if app is not None and getattr(get_environment().frontend, "app", app) is not app:
+                return
             # Per-process GPU query every other tick (every ~2s)
             include_proc_gpu = (self._tick % 2 == 0)
             self._tick += 1
