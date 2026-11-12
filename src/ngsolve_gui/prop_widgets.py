@@ -340,7 +340,7 @@ class ColorbarLegend(Div):
 
     def _set_min(self, event):
         try:
-            v = float(event.value["value"])
+            v = float(event.value)
             self._comp.colormap.set_min(v)
             self._comp.colormap_autoscale.value = False
             self._comp.colormap_min.value = v
@@ -350,7 +350,7 @@ class ColorbarLegend(Div):
 
     def _set_max(self, event):
         try:
-            v = float(event.value["value"])
+            v = float(event.value)
             self._comp.colormap.set_max(v)
             self._comp.colormap_autoscale.value = False
             self._comp.colormap_max.value = v
@@ -567,7 +567,7 @@ class FieldSummary(Div):
 
     def _set_min(self, event):
         try:
-            val = float(event.value["value"])
+            val = float(event.value)
             self.comp.colormap.set_min(val)
             self.comp.colormap_autoscale.value = False
             self.comp.colormap_min.value = val
@@ -578,7 +578,7 @@ class FieldSummary(Div):
 
     def _set_max(self, event):
         try:
-            val = float(event.value["value"])
+            val = float(event.value)
             self.comp.colormap.set_max(val)
             self.comp.colormap_autoscale.value = False
             self.comp.colormap_max.value = val
