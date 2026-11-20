@@ -237,13 +237,6 @@ class MeshComponent(WebgpuTab):
     def _toggle_numbers(self, entity):
         getattr(self, f"{entity}_numbers_visible").toggle()
 
-    def update(self, title, mesh, settings):
-        self.title = title
-        if self.mesh == mesh:
-            return
-        self.mesh = mesh
-        self.draw()
-
     def property_subtitle(self):
         return f"Mesh · {self.mesh.dim}D"
 
@@ -446,7 +439,7 @@ class MeshComponent(WebgpuTab):
 
 # Register with the component registry
 from .registry import register_component
-from .sections import MeshDisplaySection, MeshColorSection, ClippingSection, EntityNumbersSection
+from .sections import MeshDisplaySection, MeshColorSection, EntityNumbersSection
 
 MeshComponent.property_sections = [
     MeshDisplaySection, MeshColorSection, EntityNumbersSection,

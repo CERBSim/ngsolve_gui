@@ -1192,7 +1192,7 @@ class FunctionComponent(WebgpuTab):
                 self.facet_renderer,
                 self.wireframe,
                 self.edges,
-                # colorbar is shown in the UI (FieldSummary), not in the scene
+                # colorbar is shown in the UI (ColorbarLegend), not in the scene
                 self.contact_pairs,
                 self.clipping_vectors,
                 self.surface_vectors,
@@ -1232,7 +1232,6 @@ class FunctionComponent(WebgpuTab):
 from .registry import register_component
 from .sections import (
     FunctionDisplaySection,
-    ClippingSection,
     DeformationSection,
     VectorsFlowSection,
     ComplexSection,
@@ -1240,9 +1239,6 @@ from .sections import (
     RegionsSection,
 )
 
-# Colormap/colorbar lives in the always-visible FieldSummary (property_summary),
-# not as a section — matching the designer's function panel. LIC is folded into
-# VectorsFlowSection (grouped with streamlines), so it has no section of its own.
 FunctionComponent.property_sections = [
     FunctionDisplaySection,
     RegionsSection,

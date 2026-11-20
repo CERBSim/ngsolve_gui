@@ -109,9 +109,6 @@ class PlotComponent(PropertyPanelMixin, Div):
         for plot, fig in zip(self._plots, self._figures):
             plot.draw(fig)
 
-    def set_component(self, comp):
-        self.ui_children = [comp]
-
 
 # Register with the component registry
 from .registry import register_component

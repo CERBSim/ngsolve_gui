@@ -1095,6 +1095,3 @@ class WebgpuTab(PropertyPanelMixin, Div):
 
     def draw(self):
         raise NotImplementedError("draw method must be implemented in subclass")
-
-    def set_component(self, comp):
-        self.ui_children = [comp]

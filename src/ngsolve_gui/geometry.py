@@ -582,7 +582,7 @@ class GeometryComponent(WebgpuTab):
 
 # Register with the component registry
 from .registry import register_component
-from .sections import GeometryDisplaySection, GeometrySelectionSection, ClippingSection, MeshGenerationSection
+from .sections import GeometryDisplaySection, GeometrySelectionSection, MeshGenerationSection
 
 GeometryComponent.property_sections = [
     GeometryDisplaySection, GeometrySelectionSection, MeshGenerationSection,
