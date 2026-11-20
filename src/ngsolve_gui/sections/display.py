@@ -53,10 +53,7 @@ class MeshDisplaySection(Section):
         curve_order = QInput(
             ui_type="number", ui_model_value=comp.mesh_curvature_order,
             ui_dense=True, ui_class=input_tiny,
-        )
-        curve_order.ui_disable = not comp.mesh_curvature_enabled.value
-        comp.mesh_curvature_enabled.on_change(
-            lambda val, _old: setattr(curve_order, "ui_disable", not val)
+            ui_disable=computed(lambda: not comp.mesh_curvature_enabled.value),
         )
 
         subdiv = QInput(

@@ -1,7 +1,7 @@
 import numpy as np
 from ngapp.components import *
 from ngsolve_gui.region_colors import RegionColors
-from ..prop_widgets import Section, Segmented
+from ..prop_widgets import Section, Segmented, on_cls
 from ..cerbsim_style import (
     gap_sm, grow, mono, hint, muted, prop_switch, prop_switch_on, qhist_col,
 )
@@ -17,26 +17,21 @@ class MeshColorSection(Section):
 
     def __init__(self, comp):
         self.comp = comp
-        self._boxes = {}
-        self._boxes["region"] = self._build_region(comp)
-        self._boxes["quality"] = self._build_quality(comp)
-
+        builders = {"region": self._build_region, "quality": self._build_quality}
         options = [("region", "By region"), ("quality", "By quality")]
         if comp.mesh.dim == 3:
-            self._boxes["eltype"] = self._build_eltype(comp)
+            builders["eltype"] = self._build_eltype
             options.append(("eltype", "By element type"))
 
-        for key, box in self._boxes.items():
-            box.ui_hidden = key != "region"
-        seg = Segmented(options, "region", self._set_mode)
-        super().__init__(seg, *self._boxes.values(),
-                         icon="mdi-palette", title="Coloring")
-
-    def _set_mode(self, val):
         # The segment just chooses which controls are shown; the region (alpha),
         # element-type and quality filters compose and stay applied across modes.
-        for key, box in self._boxes.items():
-            box.ui_hidden = key != val
+        mode = Observable("region", "color_mode")
+        boxes = [Show(computed(lambda k=key: mode.value == k), lambda b=build: b(comp))
+                 for key, build in builders.items()]
+        seg = Segmented(options, mode, self._mode_selected)
+        super().__init__(seg, *boxes, icon="mdi-palette", title="Coloring")
+
+    def _mode_selected(self, val):
         if val in ("eltype", "quality") and self.comp.mesh.dim == 3:
             # show the volume mesh so volume-element filtering is visible
             self.comp.elements3d_visible.value = True
@@ -83,24 +78,17 @@ class MeshColorSection(Section):
     }
 
     def _build_eltype(self, comp):
-        self._tvis = {}
         types = comp.element_types_3d()
-        rows = []
-        for et, count in types.items():
-            self._tvis[et] = True
-            rows.append(self._type_row(comp, et, count))
+        visible = Observable(frozenset(types), "visible_element_types")
+        visible.on_change(lambda v, _o: comp.set_visible_element_types(set(v)))
+        rows = [self._type_row(visible, et, count) for et, count in types.items()]
         return Div(*rows, ui_class="column " + str(gap_sm))
 
-    def _type_row(self, comp, et, count):
+    def _type_row(self, visible, et, count):
         label = self._TYPE_LABELS.get(str(et), str(et))
-        sw = Div(ui_class=self._scls(True))
-
-        def toggle(e=None, et=et, sw=sw):
-            self._tvis[et] = not self._tvis[et]
-            sw.ui_class = self._scls(self._tvis[et])
-            self._apply_eltype()
-        sw.on("click", toggle)
-
+        sw = Div(ui_class=on_cls(prop_switch, prop_switch_on,
+                                 computed(lambda: et in visible.value)))
+        sw.on("click", lambda e=None: setattr(visible, "value", visible.value ^ {et}))
         return Div(
             Div(label, ui_class=str(grow)),
             Div(str(count), ui_class=str(mono) + " " + str(hint)),
@@ -108,43 +96,43 @@ class MeshColorSection(Section):
             ui_class="row items-center no-wrap " + str(gap_sm),
         )
 
-    def _apply_eltype(self):
-        self.comp.set_visible_element_types(
-            {t for t, v in self._tvis.items() if v})
-
-    def _scls(self, on):
-        return str(prop_switch) + (" " + str(prop_switch_on) if on else "")
-
     # -- By quality (Jacobian condition number) ---------------------------
     def _build_quality(self, comp):
         q = comp.element_quality()
-        self._q = q
-        self._qmin = float(np.min(q))
-        self._qmax = float(np.max(q))
-        self._q_total = len(q)
-        self._q_isolate = False
-        self._q_thr = float(np.percentile(q, 90))  # default cut: worst ~10%
+        qmin, qmax = float(np.min(q)), float(np.max(q))
+        total = len(q)
+        isolate = Observable(False, "quality_isolate")
+        thr = Observable(float(np.percentile(q, 90)), "quality_threshold")  # worst ~10%
 
-        qmed = float(np.median(q))
+        def apply(*_):
+            comp.set_quality_threshold(thr.value if isolate.value else None)
+        isolate.on_change(apply)
+        thr.on_change(lambda v, _o: isolate.value and apply())
+
         stats = Div(
-            Div(f"best {self._qmin:.2f}"),
-            Div(f"median {qmed:.2f}"),
-            Div(f"worst {self._qmax:.2f}"),
+            Div(f"best {qmin:.2f}"),
+            Div(f"median {float(np.median(q)):.2f}"),
+            Div(f"worst {qmax:.2f}"),
             ui_class="row " + str(gap_sm) + " " + str(mono) + " " + str(hint),
         )
 
         # log-binned histogram when the range spans more than a factor of 3
         nbins = 22
-        self._q_log = self._qmax > self._qmin * 3
-        if self._qmax <= self._qmin:
-            edges = np.array([self._qmin, self._qmin + 1.0])
-        elif self._q_log:
-            edges = np.logspace(np.log10(self._qmin), np.log10(self._qmax), nbins + 1)
+        log = qmax > qmin * 3
+        if qmax <= qmin:
+            edges = np.array([qmin, qmin + 1.0])
+        elif log:
+            edges = np.logspace(np.log10(qmin), np.log10(qmax), nbins + 1)
         else:
-            edges = np.linspace(self._qmin, self._qmax, nbins + 1)
+            edges = np.linspace(qmin, qmax, nbins + 1)
         counts, _ = np.histogram(q, bins=edges)
-        self._q_edges = edges
         cmax = max(1, int(counts.max()))
+
+        def select_bin(i):
+            # isolate that bin and everything worse (to its right)
+            thr.value = float(edges[i])
+            isolate.value = True
+
         bars = []
         for i, c in enumerate(counts):
             pos = i / (len(counts) - 1) if len(counts) > 1 else 0.0
@@ -157,74 +145,47 @@ class MeshColorSection(Section):
             # The whole column is clickable so even 1-element bars are easy to hit.
             col = Div(QTooltip(f"cond ≥ {edges[i]:.2f} · {int(c)} here"), fill,
                       ui_class=str(qhist_col))
-            col.on("click", lambda e=None, i=i: self._set_thr_bar(i))
+            col.on("click", lambda e=None, i=i: select_bin(i))
             bars.append(col)
-        self._q_marker = Div(ui_style=self._marker_style(
-            self._marker_frac(self._q_thr)))
-        histo = Div(*bars, self._q_marker, ui_style=(
+
+        def marker_frac():
+            if qmax <= qmin:
+                return 100.0
+            t = thr.value
+            if log:
+                f = (np.log10(t) - np.log10(qmin)) / (np.log10(qmax) - np.log10(qmin))
+            else:
+                f = (t - qmin) / (qmax - qmin)
+            return float(min(1.0, max(0.0, f)) * 100.0)
+
+        marker = Div(ui_style=computed(lambda: (
+            f"position:absolute; top:0; bottom:0; left:{marker_frac():.1f}%; width:2px;"
+            " background:var(--fg); opacity:0.65; pointer-events:none;"
+        )))
+        histo = Div(*bars, marker, ui_style=(
             "position:relative; display:flex; align-items:stretch; gap:1px;"
             " height:46px; margin:2px 0;"
         ))
 
-        self._q_sw = Div(ui_class=self._scls(False))
-        self._q_sw.on("click", self._toggle_isolate)
+        sw = Div(ui_class=on_cls(prop_switch, prop_switch_on, isolate))
+        sw.on("click", lambda e=None: isolate.toggle())
         toggle_row = Div(
             Div("Isolate worst elements", ui_class=str(grow)),
-            self._q_sw,
+            sw,
             ui_class="row items-center no-wrap " + str(gap_sm),
         )
-        self._q_readout = Div(ui_class=str(mono) + " " + str(muted))
-        self._update_q_readout()
+
+        def readout():
+            n = int(np.sum(q > thr.value))
+            if isolate.value:
+                return f"showing worst {n} of {total} · cond > {thr.value:.2f}"
+            return f"worst {n} of {total} would isolate · cond > {thr.value:.2f}"
 
         return Div(
             stats, histo, toggle_row,
-            self._q_readout,
+            Div(computed(readout), ui_class=str(mono) + " " + str(muted)),
             ui_class="column " + str(gap_sm),
         )
-
-    def _marker_style(self, frac):
-        return (
-            f"position:absolute; top:0; bottom:0; left:{frac:.1f}%; width:2px;"
-            " background:var(--fg); opacity:0.65; pointer-events:none;"
-        )
-
-    def _marker_frac(self, thr):
-        lo, hi = self._qmin, self._qmax
-        if hi <= lo:
-            return 100.0
-        if self._q_log:
-            f = (np.log10(thr) - np.log10(lo)) / (np.log10(hi) - np.log10(lo))
-        else:
-            f = (thr - lo) / (hi - lo)
-        return float(min(1.0, max(0.0, f)) * 100.0)
-
-    def _set_thr_bar(self, i):
-        # Click a bar → isolate that bin and everything worse (to its right).
-        self._q_thr = float(self._q_edges[i])
-        if not self._q_isolate:
-            self._q_isolate = True
-            self._q_sw.ui_class = self._scls(True)
-        self._apply_quality()
-
-    def _toggle_isolate(self, e=None):
-        self._q_isolate = not self._q_isolate
-        self._q_sw.ui_class = self._scls(self._q_isolate)
-        self._apply_quality()
-
-    def _apply_quality(self):
-        self._q_marker.ui_style = self._marker_style(self._marker_frac(self._q_thr))
-        self.comp.set_quality_threshold(self._q_thr if self._q_isolate else None)
-        self._update_q_readout()
-
-    def _update_q_readout(self):
-        thr = self._q_thr
-        n = int(np.sum(self._q > thr))
-        if self._q_isolate:
-            self._q_readout.ui_children = [
-                f"showing worst {n} of {self._q_total} · cond > {thr:.2f}"]
-        else:
-            self._q_readout.ui_children = [
-                f"worst {n} of {self._q_total} would isolate · cond > {thr:.2f}"]
 
     # -- color change handlers (unchanged) --------------------------------
     def change_color(self, name, color):

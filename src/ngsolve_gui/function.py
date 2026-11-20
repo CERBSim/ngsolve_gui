@@ -23,6 +23,13 @@ def _fmt_value(v):
     return s.rjust(11)
 
 
+def _positive_int(value):
+    value = int(float(value))
+    if value < 1:
+        raise ValueError(value)
+    return value
+
+
 class FunctionComponent(WebgpuTab):
     def _resolve_deformation(self, deform):
         """Normalize the ``deformation`` Draw argument into a 3d displacement CF."""
@@ -171,7 +178,7 @@ class FunctionComponent(WebgpuTab):
             (cv if not isinstance(cv, bool) else None)
             or (sv if not isinstance(sv, bool) else None)
             or s.get("vector_grid_size", int(_usersettings.get("default_vector_grid_size", 20))),
-            "vector_grid_size",
+            "vector_grid_size", converter=_positive_int,
         )
         self.vector_scale = Observable(
             s.get("vector_scale", 1.0), "vector_scale", converter=float
@@ -276,6 +283,9 @@ class FunctionComponent(WebgpuTab):
         self.colormap_autoscale.on_change(self._apply_autoscale)
         self.colormap_discrete.on_change(self._apply_discrete)
         self.colormap_name.on_change(self._apply_colormap_name)
+        self.colormap_min.on_change(self._apply_colormap_range)
+        self.colormap_max.on_change(self._apply_colormap_range)
+        self.ncolors_colormap.on_change(self._apply_ncolors)
         if self.cf.is_complex:
             self.complex_mode.on_change(self._apply_complex_mode)
             self.complex_animate.on_change(self._apply_complex_animate)
@@ -892,7 +902,19 @@ class FunctionComponent(WebgpuTab):
             self.colormap_min.value = float(self.colormap.minval)
             self.colormap_max.value = float(self.colormap.maxval)
         else:
-            self.wgpu.scene.render()
+            self._apply_colormap_range()
+
+    def _apply_colormap_range(self, *_):
+        # while autoscaling, the colormap writes the range, not the other way
+        if self.colormap_autoscale.value:
+            return
+        self.colormap.set_min(self.colormap_min.value)
+        self.colormap.set_max(self.colormap_max.value)
+        self.wgpu.scene.render()
+
+    def _apply_ncolors(self, val, _old):
+        self.colormap.set_n_colors(max(1, min(32, val)))
+        self.wgpu.scene.render()
 
     def _apply_discrete(self, val, _old):
         self.colormap.set_discrete(val)
@@ -1043,7 +1065,8 @@ class FunctionComponent(WebgpuTab):
         discrete = self.colormap_discrete.value
         minval = self.colormap_min.value
         maxval = self.colormap_max.value
-        self.colormap = Colormap(minval=minval, maxval=maxval, colormap=self.colormap_name.value)
+        self.colormap = Colormap(minval=minval, maxval=maxval, colormap=self.colormap_name.value,
+                                 n_colors=max(1, min(32, self.ncolors_colormap.value)))
         self.colormap.autoscale = autoscale
         self.colormap.discrete = discrete
         self.colormap._callbacks.append(self._sync_autoscale_range)

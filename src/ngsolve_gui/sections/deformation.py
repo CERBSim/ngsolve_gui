@@ -16,8 +16,8 @@ class DeformationSection(Section):
             ui_min=0.0, ui_max=1.0, ui_step=0.01, ui_dense=True, ui_label=True,
         )
         presets = Segmented(
-            [("0.5", "0.5×"), ("1", "1×"), ("2", "2×"), ("5", "5×")],
-            "1", self._set_scale,
+            [(0.5, "0.5×"), (1.0, "1×"), (2.0, "2×"), (5.0, "5×")],
+            comp.deformation_scale,
         )
 
         super().__init__(
@@ -29,9 +29,3 @@ class DeformationSection(Section):
             observable=comp.deformation_enabled,
             info="Warp the mesh by the displacement field to see how it deforms.",
         )
-
-    def _set_scale(self, val):
-        try:
-            self.comp.deformation_scale.value = float(val)
-        except (ValueError, TypeError):
-            pass

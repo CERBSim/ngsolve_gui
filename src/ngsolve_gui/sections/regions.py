@@ -11,12 +11,14 @@ drawn (whether by override or derivation).
 from ngapp.components import *
 
 from ..prop_widgets import Section, MoreDisclosure
-from .. import cerbsim_style as cb
 from ..cerbsim_style import field_label, region_item_row
 
 
 class RegionsSection(Section):
     section_key = "regions"
+
+    _BND_CYCLE = {None: False, False: True, True: None}
+    _BND_TEXT = {None: "auto", False: "off", True: "on"}
 
     def __init__(self, comp):
         self.comp = comp
@@ -26,15 +28,7 @@ class RegionsSection(Section):
         if len(mats) <= 1 and len(bnds) <= 1:
             raise ValueError("no regions to manage")
 
-        self._updating = False
-        self._mat_cbs = {}
-        self._mat_rows = {}
-        self._bnd_state_btns = {}
-        self._bnd_labels = {}
-
-        self._bnd_rows = {}
-        self._mats, self._bnds = mats, bnds
-        self._built = False
+        self._filter = Observable("", "region_filter")
 
         show_all = QBtn(
             QTooltip("Show all regions"),
@@ -47,120 +41,65 @@ class RegionsSection(Section):
             icon="mdi-layers-outline", title="Regions",
             opened=bool(st.any_hidden()), head_actions=[show_all],
         )
-        if self._open:
-            self._build_rows()
-
-        # Reflect programmatic changes (keybindings, undo, show-all).
-        comp.hidden_regions.on_change(self._sync_from_state)
-        comp.boundary_overrides.on_change(self._sync_from_state)
-
-    # -- rows --------------------------------------------------------------
-
-    def _set_open(self, val):
         # rows are built on first open: meshes with many regions would
         # otherwise send thousands of components for every new tab
-        if val and not self._built:
-            self._build_rows()
-        super()._set_open(val)
+        self._body.ui_children = [Show(self.open, lambda: self._rows(mats, bnds))]
 
-    def _build_rows(self):
-        self._built = True
-        mats, bnds = self._mats, self._bnds
+    def _state(self):
+        """The region state for the current observables (tracked)."""
+        comp = self.comp
+        comp.hidden_regions.value, comp.boundary_overrides.value
+        comp._sync_region_state()
+        return comp.region_state
+
+    def _rows(self, mats, bnds):
         rows = []
         if len(mats) + len(bnds) > 10:
-            filt = QInput(
+            rows.append(QInput(
                 ui_label="Filter...", ui_dense=True, ui_clearable=True,
-                ui_debounce=300, ui_class="q-mb-xs",
-            )
-            filt.on_update_model_value(self._on_filter)
-            rows.append(filt)
-
-        rows += [self._make_mat_row(name) for name in mats]
-
-        self._bnd_rows = {}
+                ui_debounce=300, ui_class="q-mb-xs", ui_model_value=self._filter,
+            ))
+        rows += [self._mat_row(name) for name in mats]
         if bnds:
             hint = Div(
                 "auto: drawn while an adjacent volume region is visible",
                 ui_class=field_label,
             )
-            body = [hint] + [self._make_bnd_row(name) for name in bnds]
             rows.append(MoreDisclosure(
-                *body, label_more="Boundaries", label_less="Boundaries"))
-        self._body.ui_children = rows
+                hint, *[self._bnd_row(name) for name in bnds],
+                label_more="Boundaries", label_less="Boundaries"))
+        return rows
 
-    def _make_mat_row(self, name):
-        st = self.comp.region_state
-        vis = QCheckbox(ui_model_value=st.material_visible(name), ui_dense=True)
-        vis.on_update_model_value(
-            lambda e, n=name: self._on_mat_toggle(n, e.value))
-        self._mat_cbs[name] = vis
+    def _row(self, name, control, label):
         row = Div(
-            Div(vis, ui_class="col-auto"),
-            Div(Label(name), ui_class="col " + field_label + " ellipsis"),
-            ui_class="row items-center no-wrap " + region_item_row,
-        )
-        self._mat_rows[name] = row
-        return row
-
-    _BND_CYCLE = {None: False, False: True, True: None}
-    _BND_TEXT = {None: "auto", False: "off", True: "on"}
-
-    def _make_bnd_row(self, name):
-        st = self.comp.region_state
-        state = st.overrides.get(name)
-        btn = QBtn(
-            QTooltip("Cycle auto / off / on"),
-            ui_label=self._BND_TEXT[state], ui_flat=True, ui_dense=True,
-            ui_size="sm", ui_no_caps=True,
-        )
-        btn.on_click(lambda e=None, n=name: self._on_bnd_cycle(n))
-        self._bnd_state_btns[name] = btn
-        label = Label(name)
-        self._bnd_labels[name] = label
-        row = Div(
-            Div(btn, ui_class="col-auto"),
+            Div(control, ui_class="col-auto"),
             Div(label, ui_class="col " + field_label + " ellipsis"),
             ui_class="row items-center no-wrap " + region_item_row,
         )
-        self._bnd_rows[name] = row
-        self._style_bnd(name)
+        lower = name.lower()
+        row.ui_hidden = computed(
+            lambda: bool(self._filter.value) and self._filter.value.lower().strip() not in lower)
         return row
 
-    # -- handlers ----------------------------------------------------------
+    def _mat_row(self, name):
+        comp = self.comp
+        vis = QCheckbox(
+            ui_dense=True,
+            ui_model_value=computed(lambda: name not in comp.hidden_regions.value),
+        )
+        vis.on_update_model_value(lambda e: comp.set_region_visible(name, bool(e.value)))
+        return self._row(name, vis, Label(name))
 
-    def _on_mat_toggle(self, name, visible):
-        if self._updating:
-            return
-        self.comp.set_region_visible(name, bool(visible))
-
-    def _on_bnd_cycle(self, name):
-        if self._updating:
-            return
-        current = self.comp.region_state.overrides.get(name)
-        self.comp.set_boundary_override(name, self._BND_CYCLE[current])
-
-    def _on_filter(self, event):
-        text = (event.value or "").lower().strip()
-        for name, row in {**self._mat_rows, **self._bnd_rows}.items():
-            row.ui_hidden = bool(text) and text not in name.lower()
-
-    # -- sync --------------------------------------------------------------
-
-    def _style_bnd(self, name):
-        st = self.comp.region_state
-        effective = st.boundary_effective(name)
-        self._bnd_labels[name].ui_style = (
-            "" if effective else "opacity: 0.45;")
-        self._bnd_state_btns[name].ui_label = self._BND_TEXT[
-            st.overrides.get(name)]
-
-    def _sync_from_state(self, *_):
-        st = self.comp.region_state
-        self._updating = True
-        try:
-            for name, cbx in self._mat_cbs.items():
-                cbx.ui_model_value = st.material_visible(name)
-            for name in self._bnd_state_btns:
-                self._style_bnd(name)
-        finally:
-            self._updating = False
+    def _bnd_row(self, name):
+        comp = self.comp
+        override = computed(lambda: comp.boundary_overrides.value.get(name))
+        btn = QBtn(
+            QTooltip("Cycle auto / off / on"),
+            ui_label=computed(lambda: self._BND_TEXT[override.value]),
+            ui_flat=True, ui_dense=True, ui_size="sm", ui_no_caps=True,
+        )
+        btn.on_click(lambda e=None: comp.set_boundary_override(
+            name, self._BND_CYCLE[override.value]))
+        label = Label(name, ui_style=computed(
+            lambda: "" if self._state().boundary_effective(name) else "opacity: 0.45;"))
+        return self._row(name, btn, label)

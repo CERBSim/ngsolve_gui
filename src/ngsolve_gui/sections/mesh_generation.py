@@ -10,28 +10,27 @@ from ..prop_widgets import Section, field
 from ..cerbsim_style import row2
 
 
+def _positive_error(value):
+    try:
+        return "Must be positive" if value not in (None, "") and float(value) <= 0 else ""
+    except (TypeError, ValueError):
+        return ""
+
+
 class MeshingInput(QInput):
     """A validated numeric input for meshing parameters."""
 
     def __init__(self, observable, **kwargs):
         self.observable = observable
+        error = computed(lambda: _positive_error(observable.value))
         super().__init__(
             ui_model_value=observable,
             ui_type="number",
             ui_dense=True,
+            ui_error=computed(lambda: bool(error.value)),
+            ui_error_message=error,
             **kwargs,
         )
-        self.observable.on_change(self._validate)
-        self.ui_error = False
-        self.ui_error_message = ""
-
-    def _validate(self, value, _old):
-        if value is not None and value != "" and float(value) <= 0:
-            self.ui_error = True
-            self.ui_error_message = "Must be positive"
-        else:
-            self.ui_error = False
-            self.ui_error_message = ""
 
 
 class MeshGenerationSection(Section):

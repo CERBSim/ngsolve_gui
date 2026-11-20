@@ -10,6 +10,11 @@ from ngapp.components import *
 from . import cerbsim_style as cb
 
 
+def on_cls(base, on, observable):
+    """Class string bound to a boolean observable: ``base`` plus ``on`` while true."""
+    return computed(lambda: f"{base} {on}" if observable.value else str(base))
+
+
 class Section(Div):
     """Collapsible property section: banded header + colored icon box + body.
 
@@ -19,22 +24,28 @@ class Section(Div):
                      is shown only while the feature is on, and the icon box is
                      muted while off.
 
-    Subclasses set a ``section_key`` class attribute (used for the icon-box
-    accent color and for exclude-by-key filtering).
+    ``self.open`` is the observable of the open state (the feature observable
+    for switchable sections). Subclasses set a ``section_key`` class attribute
+    (used for the icon-box accent color and for exclude-by-key filtering).
     """
 
     section_key = "display"
 
     def __init__(self, *body, icon, title, opened=False,
                  switchable=False, observable=None, info=None, head_actions=None):
-        self._switchable = switchable
-        self._obs = observable
+        if switchable and observable is not None:
+            self.open = observable
+        else:
+            switchable = False
+            self.open = Observable(bool(opened), "open")
+        is_open = computed(lambda: bool(self.open.value))
 
-        self._ico = Div(QIcon(ui_name=icon), ui_class=cb.psec_ico)
+        ico = Div(QIcon(ui_name=icon), ui_class=cb.psec_ico, ui_style=computed(
+            lambda: cb.sico_style(self.section_key, muted=switchable and not is_open.value)))
         main = []
         if not switchable:
             main.append(Div(QIcon(ui_name="mdi-chevron-down"), ui_class=cb.psec_caret))
-        main.append(self._ico)
+        main.append(ico)
         main.append(Div(title, ui_class=cb.psec_title))
         if info:
             main.append(Div(
@@ -42,86 +53,41 @@ class Section(Div):
                 ui_class=cb.htip,
             ))
         if switchable:
-            self._switch = Div(ui_class=cb.prop_switch)
-            main.append(self._switch)
+            main.append(Div(ui_class=on_cls(cb.prop_switch, cb.prop_switch_on, is_open)))
 
         # Only the main area toggles the section; header actions handle their own
         # clicks (and live to the right of the title).
-        self._head_main = Div(*main, ui_class=cb.psec_head_main)
-        self._head_main.on("click", lambda e=None: self._on_head_click())
-        head_children = [self._head_main]
+        head_main = Div(*main, ui_class=cb.psec_head_main)
+        head_main.on("click", lambda e=None: self.open.toggle())
+        head_children = [head_main]
         head_style = None
         if head_actions:
             head_children.append(Div(*head_actions, ui_class=cb.psec_head_actions))
             # In a narrow panel the actions wrap below the title instead of
             # covering it.
-            self._head_main.ui_style = "min-width: max-content; min-height: 28px;"
+            head_main.ui_style = "min-width: max-content; min-height: 28px;"
             head_style = ("flex-wrap: wrap; height: auto; min-height: 40px; "
                           "padding-top: 6px; padding-bottom: 6px; row-gap: 6px;")
-        self._head = Div(*head_children, ui_class=cb.psec_head, ui_style=head_style)
+        suffix = " cb-switchable" if switchable else ""
+        head = Div(*head_children, ui_style=head_style, ui_class=computed(
+            lambda: f"{cb.psec_head} {'cb-open' if is_open.value else 'cb-collapsed'}{suffix}"))
         self._body = Div(*body, ui_class=cb.psec_body)
+        self._body.ui_hidden = computed(lambda: not is_open.value)
 
-        super().__init__(self._head, self._body, ui_class=cb.psec)
-
-        if switchable and observable is not None:
-            self._open = bool(observable.value)
-            observable.on_change(lambda v, _o: self._set_open(bool(v)))
-        else:
-            self._open = opened
-        self._render()
-
-    def _on_head_click(self):
-        if self._switchable and self._obs is not None:
-            self._obs.value = not self._obs.value  # → on_change → _set_open
-        else:
-            self._set_open(not self._open)
-
-    def _set_open(self, val):
-        self._open = val
-        self._render()
-
-    def _render(self):
-        muted = self._switchable and not self._open
-        self._ico.ui_style = cb.sico_style(self.section_key, muted=muted)
-        head_cls = str(cb.psec_head) + (" cb-open" if self._open else " cb-collapsed")
-        if self._switchable:
-            head_cls += " cb-switchable"
-        self._head.ui_class = head_cls
-        if self._switchable:
-            self._switch.ui_class = str(cb.prop_switch) + (
-                " " + str(cb.prop_switch_on) if self._open else "")
-        self._body.ui_hidden = not self._open
+        super().__init__(head, self._body, ui_class=cb.psec)
 
 
 class Chip(Div):
     """Toggleable option chip (icon + label) bound to an Observable."""
 
     def __init__(self, label, icon=None, observable=None, small=False):
-        self._obs = observable
-        self._small = small
         children = []
         if icon:
             children.append(QIcon(ui_name=icon))
         children.append(label)
-        super().__init__(*children, ui_class=self._cls(self._on()))
-        self.on("click", lambda e=None: self._toggle())
-        if observable is not None:
-            observable.on_change(lambda v, _o: setattr(self, "ui_class", self._cls(bool(v))))
-
-    def _on(self):
-        return bool(self._obs.value) if self._obs is not None else False
-
-    def _cls(self, on):
-        c = str(cb.opt_chip)
-        if self._small:
-            c += " " + str(cb.opt_chip_sm)
-        if on:
-            c += " " + str(cb.opt_chip_on)
-        return c
-
-    def _toggle(self):
-        if self._obs is not None:
-            self._obs.value = not self._obs.value
+        base = str(cb.opt_chip) + (" " + str(cb.opt_chip_sm) if small else "")
+        super().__init__(*children, ui_class=on_cls(base, cb.opt_chip_on, observable))
+        self.on("click", lambda e=None: observable.toggle())
 
 
 def chip_row(*chips):
@@ -133,54 +99,30 @@ class Toggle(Div):
     """A label with a switch on the right, bound to an Observable."""
 
     def __init__(self, label, observable):
-        self._obs = observable
-        self._switch = Div(ui_class=self._scls(bool(observable.value)))
-        super().__init__(Div(label), self._switch, ui_class=cb.prop_toggle)
-        self.on("click", lambda e=None: self._toggle())
-        observable.on_change(lambda v, _o: setattr(self._switch, "ui_class", self._scls(bool(v))))
-
-    def _scls(self, on):
-        return str(cb.prop_switch) + (" " + str(cb.prop_switch_on) if on else "")
-
-    def _toggle(self):
-        self._obs.value = not self._obs.value
+        switch = Div(ui_class=on_cls(cb.prop_switch, cb.prop_switch_on, observable))
+        super().__init__(Div(label), switch, ui_class=cb.prop_toggle)
+        self.on("click", lambda e=None: observable.toggle())
 
 
 class SubToggleBlock(Div):
     """A flow sub-feature inside the grouped flow card: a label+switch header
-    whose settings body is shown only while the feature is enabled.
-
-    Collapsing the body when off keeps the grouped block compact (matching the
-    switchable-section behaviour used elsewhere in the panel)."""
+    whose settings body is shown only while the feature is enabled."""
 
     def __init__(self, label, observable, *body):
-        self._obs = observable
-        self._toggle = Toggle(label, observable)
-        self._body = Div(*body, ui_class=cb.flow_sub_body)
-        self._body.ui_hidden = not bool(observable.value)
-        super().__init__(self._toggle, self._body, ui_class=cb.flow_sub)
-        observable.on_change(
-            lambda v, _o: setattr(self._body, "ui_hidden", not bool(v))
-        )
+        body = Div(*body, ui_class=cb.flow_sub_body)
+        body.ui_hidden = computed(lambda: not observable.value)
+        super().__init__(Toggle(label, observable), body, ui_class=cb.flow_sub)
 
 
 class PickPill(Div):
     """A small round pill (e.g. S / F / E / V) bound to an Observable."""
 
     def __init__(self, label, observable, tooltip=None):
-        self._obs = observable
         children = [label]
         if tooltip:
             children.append(QTooltip(tooltip))
-        super().__init__(*children, ui_class=self._cls(bool(observable.value)))
-        self.on("click", lambda e=None: self._toggle())
-        observable.on_change(lambda v, _o: setattr(self, "ui_class", self._cls(bool(v))))
-
-    def _cls(self, on):
-        return str(cb.chk_pill) + (" " + str(cb.chk_pill_on) if on else "")
-
-    def _toggle(self):
-        self._obs.value = not self._obs.value
+        super().__init__(*children, ui_class=on_cls(cb.chk_pill, cb.chk_pill_on, observable))
+        self.on("click", lambda e=None: observable.toggle())
 
 
 def field(label, control):
@@ -192,200 +134,111 @@ class ColorbarLegend(Div):
     """In-viewport colorbar legend (top-right corner). Shows the quantity, a
     vertical gradient and ticks; clicking it opens a popover to pick the
     colormap, edit min/max, toggle autoscale, and (vectors) choose the shown
-    component. This replaces the side-panel field summary."""
+    component."""
 
     CMAPS = ["rainbow", "turbo", "viridis", "plasma", "cet_l20",
              "matlab:jet", "matplotlib:coolwarm"]
 
     def __init__(self, comp):
-        self._comp = comp
-        # -- title (quantity) + component selector (|u| / ux / uy / uz) --
-        self._quantity = Div(comp.title, ui_class=cb.legend_quantity)
-        self._norm_pill = None
-        self._comp_select = None
-        selector = self._build_component_selector(comp)
-        title_children = [self._quantity]
+        mn, mx = comp.colormap_min, comp.colormap_max
+        auto = comp.colormap_autoscale
+
+        title = [Div(comp.title, ui_class=cb.legend_quantity)]
+        selector = self._component_selector(comp)
         if selector is not None:
-            title_children.append(selector)
-        title_row = Div(*title_children, ui_class=cb.legend_title)
+            title.append(selector)
 
-        # -- gradient bar (click → colormap picker) + editable max/min ticks --
-        # Inputs are not bound to the observable: driven by _refresh, committed on change.
-        self.maxval = QInput(ui_type="number", ui_dense=True, ui_borderless=True)
-        self.minval = QInput(ui_type="number", ui_dense=True, ui_borderless=True)
-        self.maxval.on_change(self._set_max)
-        self.minval.on_change(self._set_min)
-        self._t75, self._t50, self._t25 = Div(""), Div(""), Div("")
-        self._bar = Div(QTooltip("Colormap options"), ui_class=cb.legend_bar)
-        self._bar.on("click", lambda e=None: self._toggle_pop())
-        ticks = Div(self.maxval, self._t75, self._t50, self._t25, self.minval,
+        # typing a range ends autoscale; the colormap follows the observables
+        def end_autoscale(e=None):
+            auto.value = False
+
+        self.maxval = QInput(ui_type="number", ui_dense=True, ui_borderless=True,
+                             ui_model_value=mx)
+        self.minval = QInput(ui_type="number", ui_dense=True, ui_borderless=True,
+                             ui_model_value=mn)
+        self.maxval.on_update_model_value(end_autoscale)
+        self.minval.on_update_model_value(end_autoscale)
+
+        def tick(t):
+            def text():
+                a, b = mn.value, mx.value
+                return self._fmt(a + t * (b - a), abs(b - a))
+            return Div(computed(text))
+
+        self._pop_open = Observable(False, "legend_pop")
+        bar = Div(QTooltip("Colormap options"), ui_class=cb.legend_bar, ui_style=computed(
+            lambda: "background: " + cb.colormap_gradient_vertical(comp.colormap_name.value) + ";"))
+        bar.on("click", lambda e=None: self._pop_open.toggle())
+        ticks = Div(self.maxval, tick(0.75), tick(0.5), tick(0.25), self.minval,
                     ui_class=cb.legend_ticks)
-        wrap = Div(self._bar, ticks, ui_class=cb.legend_wrap)
 
-        # -- autoscale pill --
-        self._auto_icon = QIcon(ui_name=self._lock(comp.colormap_autoscale.value))
-        self._auto = Div(self._auto_icon, "Auto",
-                         ui_class=self._auto_cls(comp.colormap_autoscale.value))
-        self._auto.on("click", lambda e=None: setattr(
-            comp.colormap_autoscale, "value", not comp.colormap_autoscale.value))
-        auto_row = Div(self._auto, ui_class="row q-mt-sm")
+        auto_pill = Div(
+            QIcon(ui_name=computed(lambda: "mdi-lock" if auto.value else "mdi-lock-open-variant")),
+            "Auto", ui_class=on_cls(cb.ps_auto, cb.ps_auto_on, auto))
+        auto_pill.on("click", lambda e=None: auto.toggle())
 
-        # -- advanced popover (colormap / discrete / ncolors / showing) --
-        self._pop = self._build_pop(comp)
-        self._pop.ui_hidden = True
+        pop = self._build_pop(comp)
+        pop.ui_hidden = computed(lambda: not self._pop_open.value)
 
-        super().__init__(title_row, wrap, auto_row, self._pop, ui_class=cb.vp_legend)
+        super().__init__(
+            Div(*title, ui_class=cb.legend_title),
+            Div(bar, ticks, ui_class=cb.legend_wrap),
+            Div(auto_pill, ui_class="row q-mt-sm"),
+            pop,
+            ui_class=cb.vp_legend,
+        )
 
-        comp.colormap_autoscale.on_change(self._render_auto)
-        for obs in ("colormap_name", "colormap_min", "colormap_max"):
-            getattr(comp, obs).on_change(lambda v, _o: self._refresh())
-        self.on_mounted(self._refresh)
-
-    # -- autoscale pill --
-    @staticmethod
-    def _lock(on):
-        return "mdi-lock" if on else "mdi-lock-open-variant"
-
-    def _auto_cls(self, on):
-        return str(cb.ps_auto) + (" " + str(cb.ps_auto_on) if on else "")
-
-    def _render_auto(self, v, _o):
-        self._auto.ui_class = self._auto_cls(bool(v))
-        self._auto_icon.ui_name = self._lock(bool(v))
-        self._refresh()
-
-    # -- advanced popover --------------------------------------------------
     def _build_pop(self, comp):
         rows = [Div(Div("Colormap options", ui_class=cb.ps_lab),
-                    _close_x(lambda: self._toggle_pop(False)),
+                    _close_x(lambda: setattr(self._pop_open, "value", False)),
                     ui_class="row items-center justify-between")]
 
-        self._opts = {}
+        name = comp.colormap_name
         opt_rows = []
-        for name in self.CMAPS:
+        for n in self.CMAPS:
             row = Div(
-                Div(ui_class=cb.cmap_swatch, ui_style="background: " + cb.colormap_gradient(name) + ";"),
-                Div(name, ui_class=cb.cmap_opt_name),
+                Div(ui_class=cb.cmap_swatch, ui_style="background: " + cb.colormap_gradient(n) + ";"),
+                Div(n, ui_class=cb.cmap_opt_name),
                 QIcon(ui_name="mdi-check"),
-                ui_class=self._opt_cls(name == comp.colormap_name.value),
+                ui_class=on_cls(cb.cmap_opt, cb.cmap_opt_on, computed(lambda n=n: name.value == n)),
             )
-            row.on("click", lambda e=None, n=name: setattr(comp.colormap_name, "value", n))
-            self._opts[name] = row
+            row.on("click", lambda e=None, n=n: setattr(name, "value", n))
             opt_rows.append(row)
         rows.append(field("Colormap", Div(*opt_rows)))
 
-        self._discrete = Chip("Discrete", "mdi-grid", comp.colormap_discrete, small=True)
-        self._ncolors = QInput(ui_type="number", ui_model_value=comp.ncolors_colormap,
-                               ui_dense=True, ui_filled=True, ui_class=cb.input_tiny)
-        self._ncolors.on_change(self._set_ncolors)
-        rows.append(Div(self._discrete, field("N colors", self._ncolors),
+        ncolors = QInput(ui_type="number", ui_model_value=comp.ncolors_colormap,
+                         ui_dense=True, ui_filled=True, ui_class=cb.input_tiny)
+        rows.append(Div(Chip("Discrete", "mdi-grid", comp.colormap_discrete, small=True),
+                        field("N colors", ncolors),
                         ui_class="row items-end " + str(cb.gap_sm)))
         return Div(*rows, ui_class=cb.legend_pop)
 
-    def _opt_cls(self, on):
-        return str(cb.cmap_opt) + (" " + str(cb.cmap_opt_on) if on else "")
-
-    def _toggle_pop(self, show=None):
-        self._pop.ui_hidden = (not self._pop.ui_hidden) if show is None else (not show)
-
-    def _set_ncolors(self, event):
-        try:
-            n = max(1, min(32, self._comp.ncolors_colormap.value))
-            self._comp.colormap.set_n_colors(n)
-            self._comp.wgpu.scene.render()
-        except (ValueError, TypeError):
-            pass
-
-    # -- component selector (next to the legend title) --------------------
-    def _build_component_selector(self, comp):
-        """Build the |u| / component picker shown beside the legend title.
-
-        Scalar fields get nothing. Fields with up to 3 components get an inline
-        segmented control (|u| ux uy uz). Fields with more than 3 components get
-        a |u| pill plus a dropdown to pick the component (keeps the legend narrow)."""
+    def _component_selector(self, comp):
+        """|u| / component picker beside the legend title. Fields with up to 3
+        components get a segmented control, wider ones a |u| pill and a
+        dropdown (keeps the legend narrow)."""
         dim = getattr(comp.cf, "dim", 1)
         if dim <= 1:
             return None
         names = comp.component_labels
+        shown = Observable("norm", "legend_component")
+        shown.on_change(lambda v, _o: comp.set_component(-1 if v == "norm" else int(v)))
         if dim <= 3:
             opts = [("norm", "|u|")] + [(str(i), names[i]) for i in range(dim)]
-            return Div(Segmented(opts, "norm", self._set_component), ui_class=cb.legend_comp)
-        # >3 components: |u| pill + dropdown (1..dim).
-        self._norm_pill = Div("|u|", ui_class=self._norm_cls(True))
-        self._norm_pill.on("click", lambda e=None: self._select_component("norm"))
-        self._comp_select = QSelect(
+            return Div(Segmented(opts, shown), ui_class=cb.legend_comp)
+        norm = Div("|u|", ui_class=on_cls(cb.legend_pill, cb.seg_btn_on,
+                                          computed(lambda: shown.value == "norm")))
+        norm.on("click", lambda e=None: setattr(shown, "value", "norm"))
+        select = QSelect(
             QTooltip("Component"),
             ui_options=[{"label": n, "value": i} for i, n in enumerate(names)],
+            ui_model_value=computed(lambda: None if shown.value == "norm" else int(shown.value)),
             ui_emit_value=True, ui_map_options=True,
             ui_dense=True, ui_borderless=True,
             ui_class=cb.legend_comp_select,
         )
-        self._comp_select.on_update_model_value(
-            lambda e=None: self._select_component(str(self._comp_select.ui_model_value)))
-        return Div(self._norm_pill, self._comp_select, ui_class=cb.legend_comp)
-
-    def _norm_cls(self, on):
-        return str(cb.legend_pill) + (" " + str(cb.seg_btn_on) if on else "")
-
-    def _select_component(self, val):
-        """Combined handler for the >3-component pill+dropdown selector."""
-        is_norm = val == "norm"
-        if self._norm_pill is not None:
-            self._norm_pill.ui_class = self._norm_cls(is_norm)
-        if self._comp_select is not None and is_norm:
-            self._comp_select.ui_model_value = None
-        self._set_component(val)
-
-    def _set_component(self, val):
-        self._comp.set_component(-1 if val == "norm" else int(val))
-
-    def _set_min(self, event):
-        try:
-            v = float(event.value)
-            self._comp.colormap.set_min(v)
-            self._comp.colormap_autoscale.value = False
-            self._comp.colormap_min.value = v
-            self._comp.wgpu.scene.render()
-        except (ValueError, TypeError):
-            pass
-
-    def _set_max(self, event):
-        try:
-            v = float(event.value)
-            self._comp.colormap.set_max(v)
-            self._comp.colormap_autoscale.value = False
-            self._comp.colormap_max.value = v
-            self._comp.wgpu.scene.render()
-        except (ValueError, TypeError):
-            pass
-
-    # -- visual refresh ----------------------------------------------------
-    def _range(self):
-        cmap = getattr(self._comp, "colormap", None)
-        if cmap is not None:
-            try:
-                return float(cmap.minval), float(cmap.maxval)
-            except Exception:
-                pass
-        try:
-            return float(self._comp.colormap_min.value), float(self._comp.colormap_max.value)
-        except Exception:
-            return 0.0, 1.0
-
-    def _refresh(self):
-        name = self._comp.colormap_name.value
-        self._quantity.ui_children = [self._comp.title]
-        self._bar.ui_style = "background: " + cb.colormap_gradient_vertical(name) + ";"
-        mn, mx = self._range()
-        # editable end values + read-only middle ticks
-        span = abs(mx - mn)
-        self.maxval.ui_model_value = self._fmt(mx, span)
-        self.minval.ui_model_value = self._fmt(mn, span)
-        self._t75.ui_children = [self._fmt(mn + 0.75 * (mx - mn), span)]
-        self._t50.ui_children = [self._fmt(mn + 0.5 * (mx - mn), span)]
-        self._t25.ui_children = [self._fmt(mn + 0.25 * (mx - mn), span)]
-        for n, r in getattr(self, "_opts", {}).items():
-            r.ui_class = self._opt_cls(n == name)
+        select.on_update_model_value(lambda e: setattr(shown, "value", str(e.value)))
+        return Div(norm, select, ui_class=cb.legend_comp)
 
     @staticmethod
     def _fmt(v, span=0.0):
@@ -405,49 +258,38 @@ class MoreDisclosure(Div):
     """Inline 'More options' / 'Fewer options' disclosure that shows extra body."""
 
     def __init__(self, *body, label_more="More options", label_less="Fewer options"):
-        self._more = label_more
-        self._less = label_less
-        self._open = False
-        self._caret = QIcon(ui_name="mdi-chevron-down")
-        self._label = Div(self._more)
-        self._toggle = Div(self._caret, self._label, ui_class=self._tcls())
-        self._toggle.on("click", lambda e=None: self._flip())
-        self._body = Div(*body, ui_class=cb.psec_body + " q-pa-none")
-        self._body.ui_style = "padding: 0; gap: 11px;"
-        self._body.ui_hidden = True
-        super().__init__(self._body, self._toggle, ui_class="column " + str(cb.gap_sm))
-
-    def _tcls(self):
-        return str(cb.psec_more) + ("" if self._open else " cb-collapsed")
-
-    def _flip(self):
-        self._open = not self._open
-        self._toggle.ui_class = self._tcls()
-        self._label.ui_children = [self._less if self._open else self._more]
-        self._body.ui_hidden = not self._open
+        is_open = Observable(False, "more_open")
+        toggle = Div(
+            QIcon(ui_name="mdi-chevron-down"),
+            Div(computed(lambda: label_less if is_open.value else label_more)),
+            ui_class=computed(lambda: str(cb.psec_more) + ("" if is_open.value else " cb-collapsed")),
+        )
+        toggle.on("click", lambda e=None: is_open.toggle())
+        body = Div(*body, ui_class=cb.psec_body + " q-pa-none",
+                   ui_style="padding: 0; gap: 11px;")
+        body.ui_hidden = computed(lambda: not is_open.value)
+        super().__init__(body, toggle, ui_class="column " + str(cb.gap_sm))
 
 
 class Segmented(Div):
-    """A segmented button group. ``options`` is a list of (value, label)."""
+    """A segmented button group. ``options`` is a list of (value, label);
+    ``value`` is an Observable of the selected value (or the initial value).
+    ``on_change(value)`` is called when the user selects a button."""
 
     def __init__(self, options, value, on_change=None):
-        self._value = value
-        self._on_change = on_change
-        self._btns = {}
+        if not isinstance(value, Observable):
+            value = Observable(value, "segmented")
+        self.value = value
+
+        def select(v):
+            value.value = v
+            if on_change:
+                on_change(v)
+
         children = []
         for val, lab in options:
-            b = Div(lab, ui_class=self._cls(val == value))
-            b.on("click", lambda e=None, v=val: self._select(v))
-            self._btns[val] = b
+            b = Div(lab, ui_class=on_cls(cb.seg_btn, cb.seg_btn_on,
+                                         computed(lambda val=val: value.value == val)))
+            b.on("click", lambda e=None, v=val: select(v))
             children.append(b)
         super().__init__(*children, ui_class=cb.seg)
-
-    def _cls(self, on):
-        return str(cb.seg_btn) + (" " + str(cb.seg_btn_on) if on else "")
-
-    def _select(self, val):
-        self._value = val
-        for v, b in self._btns.items():
-            b.ui_class = self._cls(v == val)
-        if self._on_change:
-            self._on_change(val)

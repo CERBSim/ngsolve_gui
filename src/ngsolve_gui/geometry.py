@@ -15,7 +15,10 @@ class GeometryComponent(WebgpuTab):
         self.geo = data["obj"]
         self.selected = None
         self._selected_items = []  # list of (kind, index) — ordered, no dups
-        self._selection_section = None
+        # (kind, index) of the selected entities, and the errors of the last edit
+        self.selection = Observable((), "selection")
+        self.maxh_error = Observable("", "maxh_error")
+        self.name_error = Observable("", "name_error")
         self._picking_always_active = True
         tab = app_data.get_tab(name)
         s = tab.get("settings", {}) if tab else {}
@@ -285,16 +288,13 @@ class GeometryComponent(WebgpuTab):
                 value = float(value)
                 if value <= 0:
                     raise ValueError("Max mesh size must be positive.")
-            if self._selection_section:
-                self._selection_section.meshsize_input.ui_error = False
+            self.maxh_error.value = ""
             for kind, idx in self._selected_items:
                 entity = self._get_entity(kind, idx)
                 if entity is not None:
                     entity.maxh = value if value is not None else 1e99
         except ValueError as e:
-            if self._selection_section:
-                self._selection_section.meshsize_input.ui_error_message = str(e)
-                self._selection_section.meshsize_input.ui_error = True
+            self.maxh_error.value = str(e)
 
     def change_name(self, event):
         value = event.value
@@ -305,12 +305,9 @@ class GeometryComponent(WebgpuTab):
                 entity = self._get_entity(kind, idx)
                 if entity is not None:
                     entity.name = value
-            if self._selection_section:
-                self._selection_section.name_input.ui_error = False
+            self.name_error.value = ""
         except ValueError as e:
-            if self._selection_section:
-                self._selection_section.name_input.ui_error_message = str(e)
-                self._selection_section.name_input.ui_error = True
+            self.name_error.value = str(e)
 
     def _hide_selected_shape(self, event=None):
         if not self._selected_items:
@@ -485,8 +482,7 @@ class GeometryComponent(WebgpuTab):
             self._update_selection_buffers()
             self._clear_highlight()
             self.pick_overlay.hide()
-            if self._selection_section:
-                self._selection_section.clear_selection()
+            self._update_selection_panel()
         else:
             self._clear_highlight()
             if self._selected_items:
@@ -531,19 +527,9 @@ class GeometryComponent(WebgpuTab):
         self.geo_renderer.vertices.set_selection(vert_sel)
 
     def _update_selection_panel(self):
-        if not self._selection_section:
-            return
-        if not self._selected_items:
-            self.selected = None
-            self._selection_section.clear_selection()
-        elif len(self._selected_items) == 1:
-            kind, idx = self._selected_items[0]
-            self.selected = (kind, idx)
-            self._selection_section.update_selection(kind, idx)
-        else:
-            kind, idx = self._selected_items[-1]
-            self.selected = (kind, idx)
-            self._selection_section.update_multi_selection(self._selected_items)
+        items = tuple(self._selected_items)
+        self.selected = items[-1] if items else None
+        self.selection.value = items
 
     def _on_pick_solid_change(self, val, _old):
         if self._updating_pick_modes:
