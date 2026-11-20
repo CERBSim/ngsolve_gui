@@ -2,7 +2,7 @@
 
 Volume regions (materials) get plain visibility checkboxes; surfaces follow
 automatically through the mesh adjacency (an interface stays visible while
-either adjacent volume region is visible — see ``region_state.RegionState``).
+either adjacent volume region is visible — see ``ngsolve_webgpu.region_visibility.RegionState``).
 Per-boundary overrides live behind a "Boundaries" disclosure: each boundary
 cycles auto → hidden → shown, and its label dims when it is currently not
 drawn (whether by override or derivation).

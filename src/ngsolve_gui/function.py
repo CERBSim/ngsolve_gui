@@ -1,7 +1,7 @@
 from ngapp.components import *
 from ngsolve_webgpu import *
 from .webgpu_tab import WebgpuTab, _usersettings
-from .region_state import RegionState
+from ngsolve_webgpu.region_visibility import RegionState
 from . import cerbsim_style as cb
 import ngsolve as ngs
 import math
