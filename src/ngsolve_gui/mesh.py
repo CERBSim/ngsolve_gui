@@ -64,14 +64,13 @@ class MeshComponent(WebgpuTab):
                       int(_usersettings.get("default_elements3d_subdivision", -1))),
             "elements3d_subdivision", converter=int,
         )
+        # these show the curving of the mesh, only a change in the UI curves it
         actual_curve_order = self.mesh.GetCurveOrder()
         self.mesh_curvature_enabled = Observable(
-            saved.get("mesh_curvature_enabled", actual_curve_order > 1),
-            "mesh_curvature_enabled",
+            actual_curve_order > 1, "mesh_curvature_enabled"
         )
         self.mesh_curvature_order = Observable(
-            saved.get("mesh_curvature_order", max(2, actual_curve_order)),
-            "mesh_curvature_order", converter=int,
+            max(2, actual_curve_order), "mesh_curvature_order", converter=int,
         )
         self.edge_colors = Observable(
             saved.get("edge_colors", {}), "edge_colors"
@@ -103,7 +102,7 @@ class MeshComponent(WebgpuTab):
         self.subdivision.on_change(self._apply_subdivision)
         self.elements3d_subdivision.on_change(self._apply_elements3d_subdivision)
         self.mesh_curvature_enabled.on_change(self._apply_curvature)
-        self.mesh_curvature_order.on_change(self._apply_curvature_order)
+        self.mesh_curvature_order.on_change(self._apply_curvature)
         for entity in self.entity_number_entities:
             obs = getattr(self, f"{entity}_numbers_visible")
             obs.on_change(lambda val, _old, e=entity: self._apply_entity_numbers(e, val))
@@ -174,13 +173,11 @@ class MeshComponent(WebgpuTab):
             self.elements3d.subdivision = self._elements3d_subdiv_override()
         self.wgpu.scene.render()
 
-    def _apply_curvature(self, val, _old):
-        if not val:
-            self.mesh.Curve(1)
-        self.mdata.set_needs_update()
-        self.draw()
-
-    def _apply_curvature_order(self, val, _old):
+    def _apply_curvature(self, _val, _old):
+        order = int(self.mesh_curvature_order.value) if self.mesh_curvature_enabled.value else 1
+        if order == self.mesh.GetCurveOrder():
+            return
+        self.mesh.Curve(order)
         self.mdata.set_needs_update()
         self.draw()
 
@@ -370,10 +367,12 @@ class MeshComponent(WebgpuTab):
         self._set_visibility_filter("quality", kind, mask)
 
     def draw(self):
-        curve_enabled = self.mesh_curvature_enabled.value
-        curve_order = int(self.mesh_curvature_order.value)
-        if curve_enabled:
-            self.mesh.Curve(curve_order)
+        # the mesh is drawn as it is, a script may have curved it since
+        actual_order = self.mesh.GetCurveOrder()
+        with observable_batch():
+            self.mesh_curvature_enabled.value = actual_order > 1
+            if actual_order > 1:
+                self.mesh_curvature_order.value = actual_order
 
         if self.el2d_bitarray is not None or self.el3d_bitarray is not None:
             self.mdata = MeshData(
@@ -388,7 +387,6 @@ class MeshComponent(WebgpuTab):
         if override is not None:
             subdiv = override
         else:
-            actual_order = self.mesh.GetCurveOrder()
             if actual_order > 3:
                 subdiv = (actual_order + 2) // 3 + 1
             elif actual_order > 1:

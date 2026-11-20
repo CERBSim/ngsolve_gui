@@ -60,6 +60,28 @@ def test_mesh_curving_3d(page: Page, app) -> None:
 
 
 @app_test("ngsolve_gui.appconfig")
+def test_mesh_draw_keeps_curving(page: Page, app) -> None:
+    """Draw leaves the curving of the mesh alone and shows it in the UI."""
+    import ngsolve as ngs
+
+    mesh = make_mesh_2d_circle()
+    mesh.Curve(3)
+    calls, curve = [], ngs.Mesh.Curve
+    ngs.Mesh.Curve = lambda self, order: calls.append(order) or curve(self, order)
+    try:
+        _draw(app, mesh, name="KeepCurving")
+        comp = app.tab_panel.comp
+        for _ in range(100):
+            if comp.built:
+                break
+            page.wait_for_timeout(100)
+        assert comp.built and calls == []
+        assert comp.mesh_curvature_enabled.value and comp.mesh_curvature_order.value == 3
+    finally:
+        ngs.Mesh.Curve = curve
+
+
+@app_test("ngsolve_gui.appconfig")
 def test_mesh_region_boundary(page: Page, app) -> None:
     """Draw a volume region of a 3D mesh."""
     mesh = make_mesh_3d()
