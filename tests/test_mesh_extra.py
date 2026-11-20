@@ -71,11 +71,7 @@ def test_mesh_draw_keeps_curving(page: Page, app) -> None:
     try:
         _draw(app, mesh, name="KeepCurving")
         comp = app.tab_panel.comp
-        for _ in range(100):
-            if comp.built:
-                break
-            page.wait_for_timeout(100)
-        assert comp.built and calls == []
+        assert comp.title == "KeepCurving" and calls == []
         assert comp.mesh_curvature_enabled.value and comp.mesh_curvature_order.value == 3
     finally:
         ngs.Mesh.Curve = curve

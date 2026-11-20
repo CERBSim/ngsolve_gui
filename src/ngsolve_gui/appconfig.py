@@ -11,4 +11,5 @@ config = AppConfig(
     python_class=NGSolveGui,
     frontend_pip_dependencies=["ngsolve", "ngsolve_webgpu"],
     description=_DESCRIPTION,
+    local_cases=False,
 )

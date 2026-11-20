@@ -80,5 +80,4 @@ def main():
             dev_frontend=args.dev_frontend,
             app_args=app_args,
             start_browser=not args.no_browser,
-            cases=False,
         )
