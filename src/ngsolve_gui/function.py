@@ -65,6 +65,14 @@ class FunctionComponent(WebgpuTab):
             if isinstance(self.region_or_mesh, ngs.Region)
             else self.region_or_mesh
         )
+        from ngsolve_webgpu.cf import default_component_labels
+
+        labels = data.get("component_labels", None)
+        if labels is not None and len(labels) != cf.dim:
+            print(f"Warning: ignoring {len(labels)} component labels for a {cf.dim}-component field")
+            labels = None
+        self._given_labels = None if labels is None else [str(l) for l in labels]
+        self.component_labels = self._given_labels or default_component_labels(cf.dim)
         self.order = data.get("order", None)
         if self.order is None:
             self.order = 2
@@ -999,6 +1007,8 @@ class FunctionComponent(WebgpuTab):
         func_data = self.app_data.get_function_gpu_data(
             self.cf, self.region_or_mesh, order=self.order
         )
+        if self._given_labels is not None:
+            func_data.component_labels = self._given_labels
         mdata = func_data.mesh_data
 
         if self.deformation is not None:

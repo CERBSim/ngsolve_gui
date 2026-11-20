@@ -306,8 +306,8 @@ class ColorbarLegend(Div):
         dim = getattr(comp.cf, "dim", 1)
         if dim <= 1:
             return None
+        names = comp.component_labels
         if dim <= 3:
-            names = ["x", "y", "z"][:dim]
             opts = [("norm", "|u|")] + [(str(i), names[i]) for i in range(dim)]
             return Div(Segmented(opts, "norm", self._set_component), ui_class=cb.legend_comp)
         # >3 components: |u| pill + dropdown (1..dim).
@@ -315,12 +315,13 @@ class ColorbarLegend(Div):
         self._norm_pill.on("click", lambda e=None: self._select_component("norm"))
         self._comp_select = QSelect(
             QTooltip("Component"),
-            ui_options=[str(i + 1) for i in range(dim)],
+            ui_options=[{"label": n, "value": i} for i, n in enumerate(names)],
+            ui_emit_value=True, ui_map_options=True,
             ui_dense=True, ui_borderless=True,
             ui_class=cb.legend_comp_select,
         )
         self._comp_select.on_update_model_value(
-            lambda e=None: self._select_component(str(int(self._comp_select.ui_model_value) - 1)))
+            lambda e=None: self._select_component(str(self._comp_select.ui_model_value)))
         return Div(self._norm_pill, self._comp_select, ui_class=cb.legend_comp)
 
     def _norm_cls(self, on):
