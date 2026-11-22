@@ -24,7 +24,8 @@ class PlotComponent(PropertyPanelMixin, Div):
 
     @property
     def title(self):
-        return self.app_data.get_tab(self.name)["title"]
+        rec = self.app_data.get_tab(self.name)
+        return rec["title"] if rec is not None else self.name
 
     def property_subtitle(self):
         return "Plot"

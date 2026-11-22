@@ -56,8 +56,7 @@ class WebgpuTab(PropertyPanelMixin, Div):
         self.undo_stack = UndoStack()
         self._last_pick = None
 
-        tab = app_data.get_tab(name)
-        saved_settings = tab.get("settings", {}) if tab else {}
+        saved_settings = app_data.saved_settings()
         detached = bool(data.get("detached_camera", False)) if isinstance(data, dict) else False
         self.camera_shared = Observable(
             saved_settings.get("camera_shared", not detached), "camera_shared"
@@ -76,12 +75,10 @@ class WebgpuTab(PropertyPanelMixin, Div):
         self._camera_needs_fit = fresh or not self.camera_shared.value
 
         # -- Gizmo visibility (persisted in user settings) --
-        self.axes_visible = Observable(
-            _usersettings.get("axes_visible", True), "axes_visible"
-        )
-        self.navcube_visible = Observable(
-            _usersettings.get("navcube_visible", False), "navcube_visible"
-        )
+        axes = _usersettings.ref("axes_visible", True, bool)
+        navcube = _usersettings.ref("navcube_visible", False, bool)
+        self.axes_visible = Observable(axes.value, "axes_visible")
+        self.navcube_visible = Observable(navcube.value, "navcube_visible")
 
         # -- Picking (persisted; geometry overrides via _picking_always_active) --
         if getattr(self, '_picking_always_active', False):
@@ -138,6 +135,9 @@ class WebgpuTab(PropertyPanelMixin, Div):
             overlays.append(self._probe_preview)
             overlays.append(self._probe_panel)
         super().__init__(*overlays, ui_class="relative-position fit")
+        # a change of the setting reaches open views, the keys toggle per view
+        self.effect(lambda: setattr(self.axes_visible, "value", axes.value))
+        self.effect(lambda: setattr(self.navcube_visible, "value", navcube.value))
 
         self.draw()
         if self._camera_needs_fit:
@@ -585,7 +585,8 @@ class WebgpuTab(PropertyPanelMixin, Div):
 
     @property
     def title(self):
-        return self.app_data.get_tab(self.name)["title"]
+        rec = self.app_data.get_tab(self.name)
+        return rec["title"] if rec is not None else self.name
 
     # -- Keybinding support ---------------------------------------------
 

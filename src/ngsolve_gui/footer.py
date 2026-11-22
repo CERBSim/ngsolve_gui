@@ -9,7 +9,9 @@ import ctypes
 import threading
 import time
 
-from ngapp.components import Div, QIcon, QBtn, QTooltip, QSpinner
+from ngapp.components import (
+    Div, For, Observable, QBtn, QIcon, QSpinner, QTooltip, batch, computed, untracked,
+)
 
 from .cerbsim_style import (
     statusbar,
@@ -40,45 +42,50 @@ def _fmt(n):
 
 
 class StatusFooter(Div):
-    def __init__(self):
-        # -- Left: run-status indicator (idle "Ready" / busy text + progress) --
-        self._idle = Div(
+    """The poll thread only writes ``_task``/``_status``/``_percent``; stats
+    follow the current tab, the mode follows the key binding manager."""
+
+    def __init__(self, app_data, mode):
+        self.app_data = app_data
+        self._busy = Observable(False, "status_busy")
+        self._status = Observable("", "status_text")
+        self._percent = Observable(None, "status_percent")  # None: indeterminate
+
+        idle = Div(
             Div(ui_class=str(status_dot) + " " + str(status_dot_ready)),
             "Ready",
             ui_class=str(status_chip) + " " + str(status_chip_ready),
+            ui_hidden=self._busy,
         )
-
-        self._status_text = Div("", ui_class=status_text_cls)
-        self._pct_label = Div("", ui_class=str(mono) + " " + str(hint))
-        self._bar_fill = Div(ui_class=status_fill)
-        self._bar_track = Div(self._bar_fill, ui_class=status_track_inline)
-        self._cancel_btn = QBtn(
+        pct = self._percent
+        bar_fill = Div(
+            ui_class=computed(lambda: str(
+                status_fill_indeterminate if pct.value is None else status_fill)),
+            ui_style=computed(lambda: "" if pct.value is None else f"width: {pct.value:.1f}%;"),
+        )
+        cancel_btn = QBtn(
             QTooltip("Cancel"),
             ui_icon="mdi-close", ui_flat=True, ui_dense=True, ui_round=True,
             ui_size="xs", ui_padding="2px",
         )
-        self._cancel_btn.on_click(self._on_cancel)
-        self._busy = Div(
+        cancel_btn.on_click(self._on_cancel)
+        busy = Div(
             QSpinner(ui_color="primary", ui_size="14px"),
-            self._status_text,
-            self._bar_track,
-            self._pct_label,
-            self._cancel_btn,
+            Div(self._status, ui_class=status_text_cls),
+            Div(bar_fill, ui_class=status_track_inline),
+            Div(computed(lambda: "" if pct.value is None else f"{pct.value:.0f}%"),
+                ui_class=str(mono) + " " + str(hint)),
+            cancel_btn,
             ui_class="row items-center no-wrap " + str(gap_sm),
+            ui_hidden=computed(lambda: not self._busy.value),
         )
-        self._busy.ui_hidden = True
 
-        self._status_section = Div(
-            self._idle, self._busy,
+        mode_section = Div(
+            QIcon(ui_name="mdi-keyboard-outline", ui_size="13px"),
+            Div(computed(lambda: f"{mode.value} mode"), ui_class=status_mode),
             ui_class=status_item,
+            ui_hidden=computed(lambda: not mode.value),
         )
-
-        # -- Middle: per-object quick stats --
-        self._stats = Div(ui_class="row items-center no-wrap")
-
-        # -- Right: viewport mode --
-        self._mode_section = Div(ui_class=status_item)
-        self._mode_section.ui_hidden = True
 
         # Polling state (mirrors the old floating status pill).
         self._thread = None
@@ -88,30 +95,28 @@ class StatusFooter(Div):
         self._task_label = None
 
         super().__init__(
-            self._status_section,
-            self._stats,
+            Div(idle, busy, ui_class=status_item),
+            Div(For(computed(self._stats), self._stat), ui_class="row items-center no-wrap"),
             Div(ui_class=status_spacer),
-            self._mode_section,
+            mode_section,
             ui_class=statusbar,
         )
-        self.set_component(None, "")
 
     # -- active object -------------------------------------------------
-    def set_component(self, comp, type_key):
-        if comp is None:
-            self._stats.ui_children = []
-            return
-        self._stats.ui_children = [
-            self._stat(label, value) for label, value in self._stats_for(comp, type_key)
-        ]
+    def _stats(self):
+        rec = self.app_data.current.value
+        if rec is None:
+            return ()
+        with untracked():
+            return tuple(self._stats_for(self.app_data.component(rec["uid"]), rec["type"]))
 
-    def _stat(self, label, value):
-        return Div(
-            label, Div(value, ui_class=status_num),
-            ui_class=status_item,
-        )
+    @staticmethod
+    def _stat(stat):
+        label, value = stat
+        return Div(label, Div(value, ui_class=status_num), ui_class=status_item)
 
-    def _stats_for(self, comp, type_key):
+    @staticmethod
+    def _stats_for(comp, type_key):
         """Best-effort quick stats read directly off the active component."""
         try:
             if type_key == "geometry":
@@ -152,18 +157,6 @@ class StatusFooter(Div):
             pass
         return []
 
-    # -- viewport mode -------------------------------------------------
-    def set_mode(self, name):
-        if name:
-            self._mode_section.ui_children = [
-                QIcon(ui_name="mdi-keyboard-outline", ui_size="13px"),
-                Div(f"{name} mode", ui_class=status_mode),
-            ]
-            self._mode_section.ui_hidden = False
-        else:
-            self._mode_section.ui_children = []
-            self._mode_section.ui_hidden = True
-
     # -- run status (busy) ---------------------------------------------
     def show(self, filename, thread, done_event):
         """Enter the busy state and start polling netgen for live status."""
@@ -172,10 +165,10 @@ class StatusFooter(Div):
         self._done_event = done_event
         self._thread_name = thread.name if thread else ""
         self._task_label = None
-        self._status_text.ui_children = [f"Running {filename} …"]
-        self._set_indeterminate()
-        self._idle.ui_hidden = True
-        self._busy.ui_hidden = False
+        with batch():
+            self._status.value = f"Running {filename} …"
+            self._percent.value = None
+            self._busy.value = True
         self._start_poll(self._generation)
 
     def set_task(self, label):
@@ -188,19 +181,7 @@ class StatusFooter(Div):
         self._thread = None
         self._done_event = None
         self._task_label = None
-        self._busy.ui_hidden = True
-        self._idle.ui_hidden = False
-
-    def _set_progress(self, percent):
-        w = max(0, min(100, percent))
-        self._bar_fill.ui_class = status_fill
-        self._bar_fill.ui_style = f"width: {w:.1f}%;"
-        self._pct_label.ui_children = [f"{w:.0f}%"]
-
-    def _set_indeterminate(self):
-        self._bar_fill.ui_class = status_fill_indeterminate
-        self._bar_fill.ui_style = ""
-        self._pct_label.ui_children = [""]
+        self._busy.value = False
 
     def _start_poll(self, gen):
         def poll():
@@ -215,29 +196,12 @@ class StatusFooter(Div):
                     status_text, percent = _GetStatus()
                 except Exception:
                     status_text, percent = "idle", 0.0
-
-                done = done_event.is_set()
-
-                task = self._task_label
-                if task:
-                    self._status_text.ui_children = [task]
-                    if percent > 0:
-                        self._set_progress(percent)
-                    else:
-                        self._set_indeterminate()
-                    if done:
-                        self.hide()
-                        break
-                elif status_text and status_text != "idle":
-                    self._status_text.ui_children = [status_text]
-                    if percent > 0:
-                        self._set_progress(percent)
-                    else:
-                        self._set_indeterminate()
-                    if done:
-                        self.hide()
-                        break
-                elif done:
+                text = self._task_label or (status_text if status_text != "idle" else "")
+                if text:
+                    with batch():
+                        self._status.value = text
+                        self._percent.value = max(0.0, min(100.0, percent)) if percent > 0 else None
+                if done_event.is_set():
                     self.hide()
                     break
 

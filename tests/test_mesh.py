@@ -27,7 +27,7 @@ def test_mesh_2d(page: Page, app) -> None:
     """2D mesh: default → no wireframe → wireframe only."""
     mesh = make_mesh_2d()
     _draw(app, mesh, name="Mesh2D")
-    comp = app.tab_panel.comp
+    comp = app.active_component
     # 1. Default rendering (wireframe + surface elements)
     assert_matches_baseline(page, comp.wgpu, "mesh_2d_default.png")
 
@@ -46,7 +46,7 @@ def test_mesh_3d(page: Page, app) -> None:
     """3D mesh: default → no wireframe → clipping → volume+shrink."""
     mesh = make_mesh_3d()
     _draw(app, mesh, name="Mesh3D")
-    comp = app.tab_panel.comp
+    comp = app.active_component
     # 1. Default rendering (wireframe + surface elements)
     assert_matches_baseline(page, comp.wgpu, "mesh_3d_default.png")
 

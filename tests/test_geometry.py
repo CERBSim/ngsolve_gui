@@ -24,7 +24,7 @@ def test_geometry_box(page: Page, app) -> None:
     """Box geometry: default → no edges → clipped."""
     geo = make_geometry()
     _draw(app, geo, name="Geometry")
-    comp = app.tab_panel.comp
+    comp = app.active_component
     # 1. Default rendering (faces + edges)
     assert_matches_baseline(page, comp.wgpu, "geometry_box_default.png")
 

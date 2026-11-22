@@ -23,7 +23,7 @@ def test_plot_single_figure(page: Page, app) -> None:
     fig = go.Figure(data=go.Scatter(x=[1, 2, 3], y=[1, 4, 9]))
     _draw(app, fig, name="SinglePlot")
 
-    comp = app.tab_panel.comp
+    comp = app.active_component
     assert isinstance(comp, PlotComponent)
 
     page.wait_for_timeout(100)

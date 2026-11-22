@@ -28,7 +28,7 @@ def test_function_gridfunction(page: Page, app) -> None:
     gf = ngs.GridFunction(fes)
     gf.Set(ngs.x * ngs.y)
     _draw(app, gf, name="GF2D")
-    comp = app.tab_panel.comp
+    comp = app.active_component
     assert_matches_baseline(page, comp.wgpu, "func_gridfunction_2d_default.png")
 
 
@@ -38,7 +38,7 @@ def test_function_deformation_scale(page: Page, app) -> None:
     mesh = make_mesh_2d()
     cf = ngs.x**2 + ngs.y**2
     _draw(app, cf, mesh=mesh, name="DeformScale")
-    comp = app.tab_panel.comp
+    comp = app.active_component
     # 1. Default (auto deformation on for 2D scalar)
     assert_matches_baseline(page, comp.wgpu, "func_deformation_default.png")
 
@@ -58,7 +58,7 @@ def test_function_3d_options(page: Page, app) -> None:
     mesh = make_mesh_3d()
     cf = ngs.x + ngs.y + ngs.z
     _draw(app, cf, mesh=mesh, name="Options3D")
-    comp = app.tab_panel.comp
+    comp = app.active_component
 
     # 1. Enable clipping so the clipping plane is visible
     toggle_clipping(page)

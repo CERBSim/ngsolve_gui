@@ -33,8 +33,7 @@ class MeshComponent(WebgpuTab):
         self._quality_threshold = None  # None = no quality isolation
 
         # -- Observable properties (restored from saved settings) -----------
-        tab = app_data.get_tab(name)
-        saved = tab.get("settings", {}) if tab else {}
+        saved = app_data.saved_settings()
         self.wireframe_visible = Observable(
             saved.get("wireframe_visible", True), "wireframe_visible"
         )

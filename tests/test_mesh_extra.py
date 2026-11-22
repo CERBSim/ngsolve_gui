@@ -25,7 +25,7 @@ def test_mesh_elements_1d(page: Page, app) -> None:
     """2D mesh: default (1D off) → toggle 1D elements on."""
     mesh = make_mesh_2d()
     _draw(app, mesh, name="Mesh1D")
-    comp = app.tab_panel.comp
+    comp = app.active_component
 
     assert_matches_baseline(page, comp.wgpu, "mesh_2d_elements1d_off.png")
 
@@ -38,7 +38,7 @@ def test_mesh_curving_2d(page: Page, app) -> None:
     """2D circle mesh: linear (default) → enable curving to see smooth boundary."""
     mesh = make_mesh_2d_circle()
     _draw(app, mesh, name="CurveCircle")
-    comp = app.tab_panel.comp
+    comp = app.active_component
 
     assert_matches_baseline(page, comp.wgpu, "mesh_circle_curved_off.png")
 
@@ -51,7 +51,7 @@ def test_mesh_curving_3d(page: Page, app) -> None:
     """3D sphere mesh: linear (default) → enable curving to see smooth surface."""
     mesh = make_mesh_3d_sphere()
     _draw(app, mesh, name="CurveSphere")
-    comp = app.tab_panel.comp
+    comp = app.active_component
 
     assert_matches_baseline(page, comp.wgpu, "mesh_sphere_curved_off.png")
 
@@ -70,7 +70,7 @@ def test_mesh_draw_keeps_curving(page: Page, app) -> None:
     ngs.Mesh.Curve = lambda self, order: calls.append(order) or curve(self, order)
     try:
         _draw(app, mesh, name="KeepCurving")
-        comp = app.tab_panel.comp
+        comp = app.active_component
         assert comp.title == "KeepCurving" and calls == []
         assert comp.mesh_curvature_enabled.value and comp.mesh_curvature_order.value == 3
     finally:
@@ -83,6 +83,6 @@ def test_mesh_region_boundary(page: Page, app) -> None:
     mesh = make_mesh_3d()
     region = mesh.Boundaries("left|right")
     _draw(app, region, name="BndRegion")
-    comp = app.tab_panel.comp
+    comp = app.active_component
 
     assert_matches_baseline(page, comp.wgpu, "mesh_region_boundary.png")

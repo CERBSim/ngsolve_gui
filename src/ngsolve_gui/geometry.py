@@ -20,8 +20,7 @@ class GeometryComponent(WebgpuTab):
         self.maxh_error = Observable("", "maxh_error")
         self.name_error = Observable("", "name_error")
         self._picking_always_active = True
-        tab = app_data.get_tab(name)
-        s = tab.get("settings", {}) if tab else {}
+        s = app_data.saved_settings()
         self.show_edges = Observable(s.get("show_edges", True), "show_edges")
         self.show_faces = Observable(s.get("show_faces", True), "show_faces")
         self.show_vertices = Observable(s.get("show_vertices", False), "show_vertices")

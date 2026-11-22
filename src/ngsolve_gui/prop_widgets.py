@@ -143,7 +143,7 @@ class ColorbarLegend(Div):
         mn, mx = comp.colormap_min, comp.colormap_max
         auto = comp.colormap_autoscale
 
-        title = [Div(comp.title, ui_class=cb.legend_quantity)]
+        title = [Div(computed(lambda: comp.title), ui_class=cb.legend_quantity)]
         selector = self._component_selector(comp)
         if selector is not None:
             title.append(selector)

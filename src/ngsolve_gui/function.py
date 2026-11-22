@@ -94,8 +94,7 @@ class FunctionComponent(WebgpuTab):
         self._facet_supported = bool(self.draw_vol) and self.mesh.dim in (2, 3)
 
         # -- Resolve initial values from data args + saved settings ---------
-        tab = app_data.get_tab(name)
-        saved = tab.get("settings", {}) if tab else {}
+        saved = app_data.saved_settings()
         minval = data.get("min", 0.0)
         maxval = data.get("max", 1.0)
         autoscale = not ("min" in data or "max" in data) and not data.get(

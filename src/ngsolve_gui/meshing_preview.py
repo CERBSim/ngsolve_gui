@@ -159,10 +159,7 @@ def _try_start_preview():
     if app is None:
         return None
     try:
-        app_data = app.app_data
-        name = app_data.active_tab
-        tab = app_data.get_tab(name) if name else None
-        comp = tab.get("component") if tab else None
+        comp = app.active_component
     except Exception:
         return None
     # Only overlay onto a drawn geometry scene.

@@ -5,7 +5,7 @@ import subprocess
 import threading
 import time
 
-from ngapp.components import Div, QLinearProgress, QIcon, QTooltip
+from ngapp.components import Div, Observable, QIcon, QLinearProgress, computed
 from ngapp.utils import get_environment
 
 from .cerbsim_style import (
@@ -190,23 +190,61 @@ def _proc_color_for_percent(pct):
     return "negative"
 
 
-class _StatBar(Div):
-    """A single labeled mini-bar showing one metric with an optional process sub-bar."""
+def _cpu(stats):
+    if "cpu" not in stats:
+        return None
+    pct, proc = stats["cpu"], stats.get("proc_cpu")
+    return (f"{pct:.0f}%", pct / 100, _color_for_percent(pct),
+            f"{proc:.0f}%" if proc is not None else None,
+            proc / 100 if proc is not None else None)
 
-    def __init__(self, label, icon_name):
-        self._label = Div(label, ui_class=monitor_label)
-        self._value = Div("\u2014", ui_class=monitor_value)
-        self._proc_value = Div("", ui_class=monitor_subvalue)
-        self._bar = QLinearProgress(
-            ui_value=0,
-            ui_color="positive",
+
+def _ram(stats):
+    if "ram_used_gb" not in stats:
+        return None
+    used, total, proc = stats["ram_used_gb"], stats["ram_total_gb"], stats.get("proc_ram_gb")
+    return (f"{used:.1f}/{total:.0f}G", stats["ram_percent"] / 100,
+            _color_for_percent(stats["ram_percent"]),
+            f"{proc:.1f}G" if proc is not None else None,
+            proc / total if proc is not None and total > 0 else None)
+
+
+def _gpu(stats):
+    if "gpu_util" not in stats:
+        return ("N/A", 0, "grey-5", None, None)
+    pct = stats["gpu_util"]
+    return (f"{pct}%", pct / 100, _color_for_percent(pct), None, None)
+
+
+def _vram(stats):
+    if "gpu_used_gb" not in stats:
+        return ("N/A", 0, "grey-5", None, None)
+    used, total, proc = stats["gpu_used_gb"], stats["gpu_total_gb"], stats.get("proc_gpu_mem_gb")
+    pct = (used / total * 100) if total > 0 else 0
+    return (f"{used:.1f}/{total:.0f}G", pct / 100, _color_for_percent(pct),
+            f"{proc:.1f}G" if proc is not None else None,
+            proc / total if proc is not None and total > 0 else None)
+
+
+class _StatBar(Div):
+    """A labeled mini-bar of one metric with an optional process sub-bar.
+
+    *read* maps the stats to (text, fraction, color, proc_text, proc_fraction)
+    or None (no data yet)."""
+
+    def __init__(self, label, icon_name, stats, read):
+        val = computed(lambda: read(stats.value) or ("\u2014", 0, "positive", None, None))
+        proc = computed(lambda: max(0.0, min(1.0, val.value[4] or 0)))
+        bar = QLinearProgress(
+            ui_value=computed(lambda: max(0.0, min(1.0, val.value[1]))),
+            ui_color=computed(lambda: val.value[2]),
             ui_track_color="grey-3",
             ui_class=monitor_bar,
             ui_rounded=True,
         )
-        self._proc_bar = QLinearProgress(
-            ui_value=0,
-            ui_color="info",
+        proc_bar = QLinearProgress(
+            ui_value=computed(lambda: proc.value if val.value[3] is not None else 0),
+            ui_color=computed(lambda: _proc_color_for_percent(proc.value * 100)),
             ui_track_color="grey-3",
             ui_class=monitor_subbar,
             ui_rounded=True,
@@ -215,40 +253,22 @@ class _StatBar(Div):
         icon = QIcon(ui_name=icon_name, ui_size="14px", ui_class=monitor_icon)
         # value + per-process sub-value share the right side of the header row
         value_group = Div(
-            self._value, self._proc_value,
+            Div(computed(lambda: val.value[0]), ui_class=monitor_value),
+            Div(computed(lambda: f"({val.value[3]})" if val.value[3] is not None else ""),
+                ui_class=monitor_subvalue),
             ui_class="row items-baseline q-gutter-x-xs",
         )
         header = Div(
-            self._label,
+            Div(label, ui_class=monitor_label),
             value_group,
             ui_class=monitor_stat_header,
         )
         body = Div(
             header,
-            Div(self._bar, self._proc_bar, ui_class=monitor_bars),
+            Div(bar, proc_bar, ui_class=monitor_bars),
             ui_class=monitor_body,
         )
-
-        super().__init__(
-            icon,
-            body,
-            ui_class=monitor_stat,
-        )
-
-    def update(self, value_text, fraction, color,
-               proc_text=None, proc_fraction=None):
-        self._value.ui_children = [value_text]
-        self._bar.ui_value = max(0.0, min(1.0, fraction))
-        self._bar.ui_color = color
-
-        if proc_text is not None:
-            frac = max(0.0, min(1.0, proc_fraction or 0))
-            self._proc_value.ui_children = [f"({proc_text})"]
-            self._proc_bar.ui_value = frac
-            self._proc_bar.ui_color = _proc_color_for_percent(frac * 100)
-        else:
-            self._proc_value.ui_children = [""]
-            self._proc_bar.ui_value = 0
+        super().__init__(icon, body, ui_class=monitor_stat)
 
 
 class SystemMonitor(Div):
@@ -256,16 +276,12 @@ class SystemMonitor(Div):
 
     def __init__(self, update_interval=1.0):
         self._interval = update_interval
-        self._cpu_bar = _StatBar("CPU", "mdi-chip")
-        self._ram_bar = _StatBar("RAM", "mdi-memory")
-        self._gpu_bar = _StatBar("GPU", "mdi-expansion-card")
-        self._vram_bar = _StatBar("VRAM", "mdi-expansion-card-variant")
-
+        self.stats = Observable({}, "system_stats")
         super().__init__(
-            self._cpu_bar,
-            self._ram_bar,
-            self._gpu_bar,
-            self._vram_bar,
+            _StatBar("CPU", "mdi-chip", self.stats, _cpu),
+            _StatBar("RAM", "mdi-memory", self.stats, _ram),
+            _StatBar("GPU", "mdi-expansion-card", self.stats, _gpu),
+            _StatBar("VRAM", "mdi-expansion-card-variant", self.stats, _vram),
             ui_class=monitor,
         )
 
@@ -287,51 +303,11 @@ class SystemMonitor(Div):
             include_proc_gpu = (self._tick % 2 == 0)
             self._tick += 1
             stats = _get_stats(include_proc_gpu)
-            self._refresh(stats)
-
-    def _refresh(self, stats):
-        if "cpu" in stats:
-            pct = stats["cpu"]
-            proc_cpu = stats.get("proc_cpu")
-            self._cpu_bar.update(
-                f"{pct:.0f}%", pct / 100, _color_for_percent(pct),
-                proc_text=f"{proc_cpu:.0f}%" if proc_cpu is not None else None,
-                proc_fraction=proc_cpu / 100 if proc_cpu is not None else None,
-            )
-
-        if "ram_used_gb" in stats:
-            pct = stats["ram_percent"]
-            used = stats["ram_used_gb"]
-            total = stats["ram_total_gb"]
-            proc_ram = stats.get("proc_ram_gb")
-            self._ram_bar.update(
-                f"{used:.1f}/{total:.0f}G", pct / 100, _color_for_percent(pct),
-                proc_text=f"{proc_ram:.1f}G" if proc_ram is not None else None,
-                proc_fraction=proc_ram / total if proc_ram is not None and total > 0 else None,
-            )
-
-        if "gpu_util" in stats:
-            pct = stats["gpu_util"]
-            self._gpu_bar.update(f"{pct}%", pct / 100, _color_for_percent(pct))
-        else:
-            self._gpu_bar.update("N/A", 0, "grey-5")
-
-        if "gpu_used_gb" in stats:
-            used = stats["gpu_used_gb"]
-            total = stats["gpu_total_gb"]
-            pct = (used / total * 100) if total > 0 else 0
-            proc_vram = stats.get("proc_gpu_mem_gb")
-            if proc_vram is not None:
-                self._last_proc_vram = proc_vram
-            else:
-                proc_vram = self._last_proc_vram
-            self._vram_bar.update(
-                f"{used:.1f}/{total:.0f}G", pct / 100, _color_for_percent(pct),
-                proc_text=f"{proc_vram:.1f}G" if proc_vram is not None else None,
-                proc_fraction=proc_vram / total if proc_vram is not None and total > 0 else None,
-            )
-        else:
-            self._vram_bar.update("N/A", 0, "grey-5")
+            if "proc_gpu_mem_gb" in stats:
+                self._last_proc_vram = stats["proc_gpu_mem_gb"]
+            elif self._last_proc_vram is not None:
+                stats["proc_gpu_mem_gb"] = self._last_proc_vram
+            self.stats.value = stats
 
     def stop(self):
         self._running = False

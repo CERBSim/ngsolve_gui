@@ -1,28 +1,180 @@
+import itertools
 import threading
 import weakref
 
 from ngsolve_webgpu import *
 from webgpu.camera import Camera
+from ngapp.components import Observable, batch, computed
+
+_uids = itertools.count(1)
 
 
 class AppData:
-    _data: dict
-    _gpu_cache: dict
-    _clipping: Clipping
-    _cameras: dict
+    """Workspace (tabs, active tab) and the services shared by all tabs: GPU
+    cache, shared cameras, global clipping.
+
+    ``tabs`` holds the records (name, title, type, icon, uid); a tab drawn
+    again under its name gets a new uid. ``shown`` follows ``active``, after
+    a short delay for Draw calls, so a burst of them mounts only the last tab.
+    """
 
     def __init__(self):
-        self._data = {"tabs": {}, "active_tab": None}
-        self._update = None
+        self.tabs = Observable((), "tabs")
+        self.active = Observable(None, "active_tab")
+        self.shown = Observable(None, "shown_tab")
+        self.current = computed(lambda: self._record(self.shown.value), "current_tab")
+        self._components = {}   # uid -> component
+        self._saved = {}        # uid -> saved data of a loaded tab, built when shown
+        self._settings = {}     # settings of the tab under construction
+        self._building = None   # record of a drawn tab under construction
+        self._timer = None
+        self._timer_lock = threading.Lock()
         self._gpu_cache = {}
         self._clipping = Clipping()
         self._cameras = {}
-        self._update_timer = None
-        self._update_timer_lock = threading.Lock()
 
     @property
     def clipping(self):
         return self._clipping
+
+    # -- workspace --------------------------------------------------------
+
+    def _record(self, name):
+        b = self._building
+        if b is not None and b["name"] == name:
+            return b
+        for t in self.tabs.value:
+            if t["name"] == name:
+                return t
+        return None
+
+    def get_tab(self, name):
+        return self._record(name)
+
+    def component(self, uid):
+        """The component of a tab, built on first use for loaded tabs."""
+        comp = self._components.get(uid)
+        if comp is None:
+            rec = next((t for t in self.tabs.value if t["uid"] == uid), None)
+            if rec is None:
+                return None
+            from .registry import get_component_info
+
+            cls = get_component_info(rec["type"])["cls"]
+            saved = self._saved.pop(uid, {})
+            self._settings = saved.get("settings", {})
+            try:
+                comp = cls(rec["name"], saved.get("data", {}), app_data=self)
+            finally:
+                self._settings = {}
+            self._components[uid] = comp
+        return comp
+
+    def saved_settings(self):
+        """Settings saved for the tab being built (empty for a new tab)."""
+        return self._settings
+
+    @property
+    def active_component(self):
+        rec = self.current.value
+        return self.component(rec["uid"]) if rec is not None else None
+
+    def select(self, name):
+        self._cancel_timer()
+        with batch():
+            self.active.value = name
+            self.shown.value = name
+
+    def add_tab(self, title: str, cls: type, *args, **kwargs):
+        from .registry import get_registry
+
+        name = title.lower().replace(" ", "_")
+        type_key, icon = "unknown", "mdi-vector-triangle"
+        for key, info in get_registry().items():
+            if info["cls"] is cls:
+                type_key, icon = key, info["icon"]
+                break
+        rec = {"name": name, "title": title, "type": type_key, "icon": icon,
+               "uid": next(_uids)}
+        self._building = rec
+        try:
+            component = cls(name, *args, **kwargs)
+        finally:
+            self._building = None
+        self._components[rec["uid"]] = component
+        tabs = [t for t in self.tabs.value if t["name"] != name] + [rec]
+        self._drop_unused(tabs)
+        with batch():
+            self.tabs.value = tuple(tabs)
+            self.active.value = name
+        self._schedule_shown()
+        return component
+
+    def delete_tab(self, name):
+        tabs = [t for t in self.tabs.value if t["name"] != name]
+        self._drop_unused(tabs)
+        active = self.active.value
+        if active == name or self._record(active) is None:
+            active = tabs[0]["name"] if tabs else None
+        with batch():
+            self.tabs.value = tuple(tabs)
+            self.select(active)
+
+    def rename_tab(self, name, title):
+        self.tabs.value = tuple(
+            dict(t, title=title) if t["name"] == name else t for t in self.tabs.value)
+
+    def _drop_unused(self, tabs):
+        uids = {t["uid"] for t in tabs}
+        for uid in [u for u in self._components if u not in uids]:
+            del self._components[uid]
+
+    def _schedule_shown(self, delay=0.1):
+        self._cancel_timer()
+        with self._timer_lock:
+            self._timer = threading.Timer(delay, self._show_active)
+            self._timer.daemon = True
+            self._timer.start()
+
+    def _cancel_timer(self):
+        with self._timer_lock:
+            if self._timer is not None:
+                self._timer.cancel()
+                self._timer = None
+
+    def _show_active(self):
+        with self._timer_lock:
+            self._timer = None
+        self.shown.value = self.active.value
+
+    # -- persistence ------------------------------------------------------
+
+    def get_save_data(self):
+        from ngapp.observable import snapshot
+
+        tabs = []
+        for rec in self.tabs.value:
+            comp = self._components.get(rec["uid"])
+            if comp is not None:
+                saved = {"data": comp.data, "settings": snapshot(comp)}
+            else:
+                saved = self._saved.get(rec["uid"], {})
+            tabs.append((rec, saved))
+        return {"tabs": tabs, "active": self.active.value}
+
+    def load_save_data(self, data):
+        recs = []
+        self._components.clear()
+        self._saved.clear()
+        for rec, saved in data["tabs"]:
+            rec = dict(rec, uid=next(_uids))
+            self._saved[rec["uid"]] = saved
+            recs.append(rec)
+        with batch():
+            self.tabs.value = tuple(recs)
+            self.select(data.get("active"))
+
+    # -- shared services --------------------------------------------------
 
     def get_shared_camera(self, group):
         """Camera shared by all views of the same mesh/geometry.
@@ -60,127 +212,9 @@ class AppData:
         return self._gpu_cache[key]
 
     def set_needs_redraw(self):
-        for tab in self._data["tabs"].values():
-            if "component" not in tab:
-                continue
-            comp = tab["component"]
+        for comp in list(self._components.values()):
             scene = getattr(comp, "scene", None)  # PlotComponent has no scene
             if scene is None:
                 continue
             for obj in getattr(scene, "render_objects", []):
                 obj.set_needs_update()
-
-    def get_save_data(self):
-        from ngapp.observable import snapshot
-
-        data_copy = {"tabs": {}, "active_tab": self._data["active_tab"]}
-        for name, tab in self._data["tabs"].items():
-            tab_copy = tab.copy()
-            if "component" in tab_copy:
-                comp = tab_copy["component"]
-                # Resolve type key from registry if not already set
-                if "type" not in tab_copy or tab_copy["type"] == "unknown":
-                    from .registry import get_registry
-
-                    cls = type(comp)
-                    for key, info in get_registry().items():
-                        if info["cls"] is cls:
-                            tab_copy["type"] = key
-                            break
-                tab_copy["data"] = comp.data
-                tab_copy["settings"] = snapshot(comp)
-                del tab_copy["component"]
-            data_copy["tabs"][name] = tab_copy
-        return data_copy
-
-    def add_tab(self, title: str, cls: type, *args, **kwargs):
-        name = title.lower().replace(" ", "_")
-        self._cancel_scheduled_update()
-        # Resolve type key and icon from registry
-        from .registry import get_registry
-
-        type_key = "unknown"
-        icon = "mdi-vector-triangle"
-        for key, info in get_registry().items():
-            if info["cls"] is cls:
-                type_key = key
-                icon = info["icon"]
-                break
-        self._data["tabs"][name] = {
-            "type": type_key,
-            "icon": icon,
-            "data": {},
-            "name": name,
-            "title": title,
-            "settings": {},
-        }
-        component = cls(name, *args, **kwargs)
-        self._data["tabs"][name]["component"] = component
-        self.active_tab = name
-        self._schedule_update()
-        return component
-
-    def _schedule_update(self, delay=0.1):
-        # coalesce the updates of a burst of Draw calls, so only the tab that
-        # ends up active gets mounted (and builds its scene) right away
-        if self._update is None:
-            return
-        self._cancel_scheduled_update()
-        with self._update_timer_lock:
-            self._update_timer = threading.Timer(delay, self._run_scheduled_update)
-            self._update_timer.daemon = True
-            self._update_timer.start()
-
-    def _cancel_scheduled_update(self):
-        with self._update_timer_lock:
-            if self._update_timer is not None:
-                self._update_timer.cancel()
-                self._update_timer = None
-
-    def _run_scheduled_update(self):
-        with self._update_timer_lock:
-            self._update_timer = None
-        if self._update is not None:
-            self._update()
-
-    def get_tabs(self):
-        """
-        Get the tabs stored in the AppData instance.
-
-        :return: A dictionary of tabs.
-        """
-        return self._data["tabs"]
-
-    def get_tab(self, name):
-        return self._data["tabs"].get(name, None)
-
-    def delete_tab(self, name):
-        """
-        Delete a tab by name.
-
-        :param name: The name of the tab to delete.
-        """
-        if name in self._data["tabs"]:
-            del self._data["tabs"][name]
-            if self.active_tab == name:
-                self.active_tab = (
-                    list(self._data["tabs"].keys())[0] if self._data["tabs"] else None
-                )
-            if self._update is not None:
-                self._update()
-
-    @property
-    def active_tab(self):
-        """
-        Get the currently active tab name.
-        """
-        return self._data["active_tab"]
-
-    @active_tab.setter
-    def active_tab(self, name):
-        """
-        Set the currently active tab by name.
-
-        :param name: The name of the tab to set as active.
-        """
-        self._data["active_tab"] = name

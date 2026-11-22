@@ -25,7 +25,7 @@ def test_function_vector_2d(page: Page, app) -> None:
     mesh = make_mesh_2d()
     cf = ngs.CF((ngs.x, ngs.y))
     _draw(app, cf, mesh=mesh, name="Vec2D")
-    comp = app.tab_panel.comp
+    comp = app.active_component
 
     assert_matches_baseline(page, comp.wgpu, "func_vector_2d_default.png")
 
@@ -39,7 +39,7 @@ def test_function_vector_3d(page: Page, app) -> None:
     mesh = make_mesh_3d()
     cf = ngs.CF((ngs.x, ngs.y, ngs.z))
     _draw(app, cf, mesh=mesh, name="Vec3D")
-    comp = app.tab_panel.comp
+    comp = app.active_component
 
     assert_matches_baseline(page, comp.wgpu, "func_vector_3d_default.png")
 
@@ -63,7 +63,7 @@ def test_function_fieldlines_2d(page: Page, app) -> None:
     mesh = make_mesh_2d()
     cf = ngs.CF((ngs.y, -ngs.x))
     _draw(app, cf, mesh=mesh, name="FieldLines2D")
-    comp = app.tab_panel.comp
+    comp = app.active_component
 
     np.random.seed(42)
     click_in_section(page, "Vectors & Flow", "Streamlines")

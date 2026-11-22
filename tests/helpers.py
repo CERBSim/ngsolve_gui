@@ -18,8 +18,8 @@ def _draw(app, obj, **kwargs):
     _setup_file_loader(app)
     from ngsolve_gui.file_loader import DrawImpl
 
-    DrawImpl(obj, **kwargs)
-    app._update()
+    comp = DrawImpl(obj, **kwargs)
+    app.app_data.select(comp.name)
 
 
 def make_mesh_2d():

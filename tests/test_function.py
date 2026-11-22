@@ -36,7 +36,7 @@ def test_function_scalar_2d(page: Page, app) -> None:
     mesh = make_mesh_2d()
     cf = ngs.x * ngs.y
     _draw(app, cf, mesh=mesh, name="Scalar2D")
-    comp = app.tab_panel.comp
+    comp = app.active_component
     # 1. Default rendering (colormap + wireframe + auto z-deformation)
     assert comp.deformation is not None
     assert_matches_baseline(page, comp.wgpu, "func_scalar_2d_default.png")
@@ -58,7 +58,7 @@ def test_function_scalar_3d(page: Page, app) -> None:
     mesh = make_mesh_3d()
     cf = ngs.x + ngs.y + ngs.z
     _draw(app, cf, mesh=mesh, name="Scalar3D")
-    comp = app.tab_panel.comp
+    comp = app.active_component
     # 1. Default rendering
     assert_matches_baseline(page, comp.wgpu, "func_scalar_3d_default.png")
 
@@ -73,7 +73,7 @@ def test_function_colormap(page: Page, app) -> None:
     mesh = make_mesh_3d()
     cf = ngs.x + ngs.y + ngs.z
     _draw(app, cf, mesh=mesh, name="ColormapTest")
-    comp = app.tab_panel.comp
+    comp = app.active_component
     # 1. Default colormap (jet, autoscale)
     assert_matches_baseline(page, comp.wgpu, "func_colormap_default.png")
 
