@@ -1,6 +1,7 @@
 from ngapp.components import *
 from ngsolve_webgpu import *
-from .webgpu_tab import WebgpuTab, _usersettings
+from .settings import usersettings as _usersettings
+from .tab import ViewTab
 from ngsolve_webgpu.region_visibility import RegionState
 from . import cerbsim_style as cb
 import ngsolve as ngs
@@ -30,7 +31,7 @@ def _positive_int(value):
     return value
 
 
-class FunctionComponent(WebgpuTab):
+class FunctionComponent(ViewTab):
     def _resolve_deformation(self, deform):
         """Normalize the ``deformation`` Draw argument into a 3d displacement CF."""
         if deform is None or deform is False:
@@ -729,8 +730,8 @@ class FunctionComponent(WebgpuTab):
 
     _COLORMAPS = ["rainbow", "turbo", "viridis", "plasma", "cet_l20", "matlab:jet", "matplotlib:coolwarm"]
 
-    def get_keybindings(self):
-        kb = super().get_keybindings()
+    def tab_keybindings(self):
+        kb = {"flat": [], "modes": []}
         kb["flat"].append(("w", self.toggle_wireframe, "Toggle wireframe", "General"))
 
         # s → Show
@@ -750,12 +751,11 @@ class FunctionComponent(WebgpuTab):
         if self.surface_vectors is not None or self.clipping_vectors is not None:
             show.append(("+", self.increase_vector_density, "Increase vector density"))
             show.append(("-", self.decrease_vector_density, "Decrease vector density"))
-        show += self._gizmo_show_bindings()
         kb["modes"].append(("s", "Show", show))
 
         # c → Clipping (3D only)
         if self.mesh.dim == 3:
-            clip = list(self._clipping_mode_bindings())
+            clip = []
             if self.clippingcf is not None:
                 clip.append(
                     ("f", self.toggle_clipping_function, "Toggle clipping function")
@@ -1219,8 +1219,6 @@ class FunctionComponent(WebgpuTab):
                 self.clipping_vectors,
                 self.surface_vectors,
                 self.fieldlines,
-                self.coordinate_axes,
-                self.navigation_cube,
             ]
             if obj is not None
         ]
@@ -1230,7 +1228,6 @@ class FunctionComponent(WebgpuTab):
             r.active = getattr(self, f"{entity}_numbers_visible").value
             self._entity_number_renderers[entity] = r
         render_objects += list(self._entity_number_renderers.values())
-        self.wgpu.draw(render_objects, camera=self.camera)
 
         pickable = [(r, k) for r, k in [
             (self.elements2d, "surface"),
@@ -1239,7 +1236,7 @@ class FunctionComponent(WebgpuTab):
             (self.lic if self._lic_is_surface else None, "surface"),
             (self.clippingcf, "clipping"),
         ] if r is not None]
-        self.setup_picking(pickable, self.mesh)
+        self.show(render_objects, pickable, self.mesh)
 
         def set_min_max():
             self.colormap_min.value = float(self.colormap.minval)

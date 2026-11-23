@@ -4,12 +4,13 @@ import ngsolve as ngs
 from ngsolve_webgpu.mesh import *
 from webgpu.labels import Labels
 
-from .webgpu_tab import WebgpuTab, _usersettings
+from .settings import usersettings as _usersettings
+from .tab import ViewTab
 import netgen.occ as ngocc
 from ngsolve_webgpu import EntityNumbers
 
 
-class MeshComponent(WebgpuTab):
+class MeshComponent(ViewTab):
     def __init__(self, name, data, app_data):
         mesh = data["obj"]
         if isinstance(mesh, ngs.Region):
@@ -127,7 +128,7 @@ class MeshComponent(WebgpuTab):
             self.elements3d.shrink = self.shrink_value.value
             self.elements3d.subdivision = self._elements3d_subdiv_override()
             self.scene.render_objects.append(self.elements3d)
-            self._add_pickable(self.elements3d, "volume")
+            self.picking.add(self.elements3d, "volume")
         self.elements3d.active = val
         self.wgpu.scene.render()
 
@@ -192,8 +193,8 @@ class MeshComponent(WebgpuTab):
 
     # -- Keybinding support -------------------------------------------------
 
-    def get_keybindings(self):
-        kb = super().get_keybindings()
+    def tab_keybindings(self):
+        kb = {"flat": [], "modes": []}
         show = [
             ("w", self.toggle_wireframe, "Toggle wireframe"),
             ("2", self.toggle_elements_2d, "Toggle elements 2D"),
@@ -202,11 +203,8 @@ class MeshComponent(WebgpuTab):
         ]
         if self.mesh.dim == 3:
             show.append(("3", self.toggle_elements_3d, "Toggle elements 3D"))
-        show += self._gizmo_show_bindings()
         kb["flat"].append(("w", self.toggle_wireframe, "Toggle wireframe", "General"))
         kb["modes"].append(("s", "Show", show))
-        if self.mesh.dim == 3:
-            kb["modes"].append(("c", "Clipping", self._clipping_mode_bindings()))
         num_bindings = [
             ("v", lambda: self._toggle_numbers("vertices"), "Vertex numbers"),
             ("e", lambda: self._toggle_numbers("edges"), "Edge numbers"),
@@ -421,19 +419,16 @@ class MeshComponent(WebgpuTab):
                 self.elements3d,
                 self.elements1d,
                 self.identifications,
-                self.coordinate_axes,
-                self.navigation_cube,
             ]
             if obj is not None
         ]
         render_objects += list(self._entity_number_renderers.values())
-        self.wgpu.draw(render_objects, camera=self.camera)
 
         pickable = [(r, k) for r, k in [
             (self.elements2d, "surface"),
             (self.elements3d, "volume"),
         ] if r is not None]
-        self.setup_picking(pickable, self.mesh)
+        self.show(render_objects, pickable, self.mesh)
 
 
 # Register with the component registry

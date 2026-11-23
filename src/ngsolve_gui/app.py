@@ -12,7 +12,7 @@ from ngapp.keybindings import KeybindingManager, keybinding_styles
 from .navigator import Navigator
 from .property_panel import empty_property_panel
 from .prop_widgets import Segmented, on_cls
-from .webgpu_tab import _usersettings as us
+from .settings import usersettings as us
 from . import cerbsim_style as cb
 from .cerbsim_style import theme, kb_theme, flex_fill, panel_full
 from .system_monitor import SystemMonitor, available as system_monitor_available
@@ -253,7 +253,7 @@ class NGSolveGui(App):
         )
 
         cb.install(self, default_theme=us.get("theme", "system"))
-        from .webgpu_tab import sync_default_viewport_clear
+        from .view.core import sync_default_viewport_clear
         sync_default_viewport_clear()
         keybinding_styles.inject(self)
         self.on_load(self.__on_load)
@@ -403,7 +403,7 @@ class NGSolveGui(App):
     def _apply_theme(self, val):
         """Theme of the page and the scene background of every open 3D tab."""
         cb.set_theme(self, val)
-        from .webgpu_tab import sync_default_viewport_clear
+        from .view.core import sync_default_viewport_clear
         sync_default_viewport_clear()  # so tabs opened later also start correct
         for comp in list(self.app_data._components.values()):
             if hasattr(comp, "apply_viewport_theme"):

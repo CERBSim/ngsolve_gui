@@ -7,10 +7,10 @@ from ngsolve_webgpu import *
 from ngsolve_webgpu.pick import GeoPickResult
 import ngsolve as ngs
 import netgen.occ as ngocc
-from .webgpu_tab import WebgpuTab
+from .tab import ViewTab
 
 
-class GeometryComponent(WebgpuTab):
+class GeometryComponent(ViewTab):
     def __init__(self, name, data, app_data):
         self.geo = data["obj"]
         self.selected = None
@@ -48,8 +48,8 @@ class GeometryComponent(WebgpuTab):
 
     # -- Keybinding support ---------------------------------------------
 
-    def get_keybindings(self):
-        kb = super().get_keybindings()
+    def tab_keybindings(self):
+        kb = {"flat": [], "modes": []}
         kb["modes"].append(
             (
                 "s",
@@ -59,10 +59,9 @@ class GeometryComponent(WebgpuTab):
                     ("v", self.toggle_vertices, "Toggle vertices"),
                     ("h", self._hide_selected_shape, "Hide selected"),
                     ("u", self._show_all_shapes, "Unhide all"),
-                ] + self._gizmo_show_bindings(),
+                ],
             )
         )
-        kb["modes"].append(("c", "Clipping", self._clipping_mode_bindings()))
         kb["modes"].append(
             (
                 "p",
@@ -374,16 +373,16 @@ class GeometryComponent(WebgpuTab):
         self.geo_renderer = GeometryRenderer(self.geo, clipping=self.clipping)
         self.geo_renderer.edges.active = self.show_edges.value
         self.geo_renderer.faces.active = self.show_faces.value
-        scene = self.wgpu.draw([self.geo_renderer, self.coordinate_axes, self.navigation_cube], camera=self.camera)
-        self.clipping.center = 0.5 * (scene.bounding_box[1] + scene.bounding_box[0])
-
-        # Hover picking: overlay + highlight on mousemove
+        # hover picking: overlay + highlight on mousemove
         self._geo_click_pending = False
         self._last_pick = None  # (event, kind) of the most recent hover pick
-        self.setup_picking(
-            [(self.geo_renderer.faces, "face"), (self.geo_renderer.edges, "edge"), (self.geo_renderer.vertices, "vertex")],
-            None,
+        scene = self.show(
+            [self.geo_renderer],
+            [(self.geo_renderer.faces, "face"), (self.geo_renderer.edges, "edge"),
+             (self.geo_renderer.vertices, "vertex")],
         )
+        self.clipping.center = 0.5 * (scene.bounding_box[1] + scene.bounding_box[0])
+
         self._update_pick_modes()
 
         def on_click(event):

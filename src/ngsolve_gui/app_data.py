@@ -127,7 +127,9 @@ class AppData:
     def _drop_unused(self, tabs):
         uids = {t["uid"] for t in tabs}
         for uid in [u for u in self._components if u not in uids]:
-            del self._components[uid]
+            comp = self._components.pop(uid)
+            if hasattr(comp, "dispose"):
+                comp.dispose()
 
     def _schedule_shown(self, delay=0.1):
         self._cancel_timer()
@@ -156,7 +158,8 @@ class AppData:
         for rec in self.tabs.value:
             comp = self._components.get(rec["uid"])
             if comp is not None:
-                saved = {"data": comp.data, "settings": snapshot(comp)}
+                settings = comp.saved_state() if hasattr(comp, "saved_state") else snapshot(comp)
+                saved = {"data": comp.data, "settings": settings}
             else:
                 saved = self._saved.get(rec["uid"], {})
             tabs.append((rec, saved))
