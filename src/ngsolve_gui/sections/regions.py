@@ -22,7 +22,9 @@ class RegionsSection(Section):
 
     def __init__(self, comp):
         self.comp = comp
-        st = comp.region_state
+        # the function tab keeps its own region state until it uses the module
+        self.regions = comp.view.part("regions") or comp
+        st = self.regions.region_state
         mats = st.unique_materials
         bnds = st.unique_boundaries if comp.mesh.dim == 3 else []
         if len(mats) <= 1 and len(bnds) <= 1:
@@ -35,7 +37,7 @@ class RegionsSection(Section):
             ui_icon="mdi-eye-refresh-outline", ui_flat=True, ui_dense=True,
             ui_round=True, ui_size="sm",
         )
-        show_all.on_click(lambda e=None: comp.show_all_regions())
+        show_all.on_click(lambda e=None: self.regions.show_all_regions())
 
         super().__init__(
             icon="mdi-layers-outline", title="Regions",
@@ -47,10 +49,12 @@ class RegionsSection(Section):
 
     def _state(self):
         """The region state for the current observables (tracked)."""
-        comp = self.comp
-        comp.hidden_regions.value, comp.boundary_overrides.value
-        comp._sync_region_state()
-        return comp.region_state
+        regions = self.regions
+        if regions is not self.comp:
+            return regions.sync()
+        regions.hidden_regions.value, regions.boundary_overrides.value
+        regions._sync_region_state()
+        return regions.region_state
 
     def _rows(self, mats, bnds):
         rows = []
@@ -82,23 +86,23 @@ class RegionsSection(Section):
         return row
 
     def _mat_row(self, name):
-        comp = self.comp
+        regions = self.regions
         vis = QCheckbox(
             ui_dense=True,
-            ui_model_value=computed(lambda: name not in comp.hidden_regions.value),
+            ui_model_value=computed(lambda: name not in regions.hidden_regions.value),
         )
-        vis.on_update_model_value(lambda e: comp.set_region_visible(name, bool(e.value)))
+        vis.on_update_model_value(lambda e: regions.set_region_visible(name, bool(e.value)))
         return self._row(name, vis, Label(name))
 
     def _bnd_row(self, name):
-        comp = self.comp
-        override = computed(lambda: comp.boundary_overrides.value.get(name))
+        regions = self.regions
+        override = computed(lambda: regions.boundary_overrides.value.get(name))
         btn = QBtn(
             QTooltip("Cycle auto / off / on"),
             ui_label=computed(lambda: self._BND_TEXT[override.value]),
             ui_flat=True, ui_dense=True, ui_size="sm", ui_no_caps=True,
         )
-        btn.on_click(lambda e=None: comp.set_boundary_override(
+        btn.on_click(lambda e=None: regions.set_boundary_override(
             name, self._BND_CYCLE[override.value]))
         label = Label(name, ui_style=computed(
             lambda: "" if self._state().boundary_effective(name) else "opacity: 0.45;"))

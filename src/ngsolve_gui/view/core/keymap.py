@@ -9,7 +9,8 @@ MODE_TITLES = {
 
 def merge(bindings, extra=None):
     """Bindings and a legacy spec in one spec; modes of the same trigger are
-    merged. Raises on a key bound twice in one mode."""
+    merged and listed in the order of MODE_TITLES. Raises on a key bound twice
+    in one mode."""
     flat, modes, names = [], {}, {}
 
     def add_flat(key, action, desc, group):
@@ -34,4 +35,6 @@ def merge(bindings, extra=None):
     for trigger, name, entries in (extra or {}).get("modes", []):
         for key, action, desc in entries:
             add_mode(trigger, name, key, action, desc)
-    return {"flat": flat, "modes": [(t, names[t], e) for t, e in modes.items()]}
+    order = list(MODE_TITLES)
+    triggers = sorted(modes, key=lambda t: order.index(t) if t in order else len(order))
+    return {"flat": flat, "modes": [(t, names[t], modes[t]) for t in triggers]}

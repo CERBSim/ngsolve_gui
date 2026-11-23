@@ -70,7 +70,9 @@ class Viewport(Div):
         self.wgpu = WebgpuComponent()
         self.wgpu.ui_class = "fit"
         self.camera = camera or Camera()
-        self.clipping = clipping or Clipping()
+        self._clipping = Observable(clipping or Clipping(), "clipping")
+        # alpha buffer of the region visibility, set by a Regions module
+        self.region_visibility = None
         self.defaults = defaults or Defaults()
         # a bar along the top edge is open (tooltips of the dock move below it)
         self.top_bar_open = Observable(False, "top_bar_open")
@@ -83,6 +85,7 @@ class Viewport(Div):
         self.scene_objects.on_change(lambda _new, _old: self.draw())
         self._last_view = (None, False)
         self._hold = 0
+        self._drawn = None
         self.draws = 0
         super().__init__(self.wgpu, self._dock, ui_class="relative-position fit", **kwargs)
         self.on_mounted(self.apply_theme)
@@ -93,6 +96,15 @@ class Viewport(Div):
     @property
     def scene(self):
         return self.wgpu.scene
+
+    @property
+    def clipping(self):
+        """The clipping plane; renderers are built again when it is swapped."""
+        return self._clipping.value
+
+    @clipping.setter
+    def clipping(self, value):
+        self._clipping.value = value
 
     # -- parts ------------------------------------------------------------
 
@@ -157,12 +169,21 @@ class Viewport(Div):
         return [r for layer in self._layers.value for r in layer.renderers.value]
 
     def draw(self):
+        """Draw the renderers of the layers, unless they are drawn already."""
         objects = self.scene_objects.value
         if not objects or self._hold:
             return None
+        if self.scene is not None and self._drawn is not None and len(self._drawn) == len(objects) \
+                and all(a is b for a, b in zip(self._drawn, objects)):
+            return self.scene
+        self._drawn = list(objects)
         self.draws += 1
         for layer in self._layers.value:
             layer.bind_all(layer.renderers.value)
+        if self.region_visibility is not None:
+            for r in objects:
+                if hasattr(r, "region_visibility"):
+                    r.region_visibility = self.region_visibility
         scene = self.wgpu.draw(objects, camera=self.camera)
         for part in list(self._parts.values()):
             part.wire(scene)

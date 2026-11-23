@@ -48,3 +48,32 @@ def test_core_imports_no_ngsolve_and_no_app():
             " 'ngsolve_gui.file_loader') if m in sys.modules]\n"
             "assert not bad, bad")
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+@standalone_app_test
+def test_mesh_view_rebuilds_once_and_keeps_regions():
+    from netgen.occ import Box, Glue, OCCGeometry, Pnt
+    from ngsolve import Mesh
+
+    from ngsolve_gui.app_data import AppData
+    from ngsolve_gui.mesh import MeshComponent
+
+    left, right = Box(Pnt(0, 0, 0), Pnt(1, 1, 1)), Box(Pnt(1, 0, 0), Pnt(2, 1, 1))
+    left.mat("left")
+    right.mat("right")
+    mesh = Mesh(OCCGeometry(Glue([left, right])).GenerateMesh(maxh=0.5))
+    app_data = AppData()
+    tab = app_data.add_tab("m", MeshComponent, {"obj": mesh}, app_data)
+    mount(tab)
+    view = tab.view
+    view.part("regions").set_region_visible("left", False)
+    draws = view.draws
+    view.part("elements3d").visible.value = True
+    assert view.draws == draws + 1
+    drawn = [r for r in view.scene_objects.value if hasattr(r, "region_visibility")]
+    assert drawn and all(r.region_visibility is view.region_visibility for r in drawn)
+
+    tab.set_quality_threshold(0.0)
+    data = view.part("mesh").data.value
+    assert data is not view.part("mesh").base_data
+    assert view.part("elements3d").renderer.data is data

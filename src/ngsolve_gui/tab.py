@@ -32,7 +32,7 @@ class _TabTools(Part):
         tools = []
         if tab._camera_linkable():
             tools.append(Tool(5, tab._link_button))
-        if hasattr(tab, "wireframe_visible"):
+        if hasattr(tab, "wireframe_visible") and view.part("wireframe") is None:
             tools.append(Tool(20, lambda: view.tool_button(
                 "mdi-grid", "Wireframe  ·  w", tab.wireframe_visible.toggle,
                 active=tab.wireframe_visible)))
@@ -47,9 +47,9 @@ class _TabTools(Part):
 
 class ViewTab(PropertyPanelMixin, Div):
     """Subclasses set their data attributes (``mesh``, ``cf``, ``geo``) before
-    calling ``__init__`` and implement ``draw()``, which passes the renderers
-    to ``show()``. Key bindings beyond the view's come from
-    ``tab_keybindings()``."""
+    calling ``__init__``. They either add layers in ``view_parts()`` or
+    implement ``draw()``, which passes the renderers to ``show()``. Key
+    bindings beyond the view's come from ``tab_keybindings()``."""
 
     _picking_always_active = False
 
@@ -98,6 +98,7 @@ class ViewTab(PropertyPanelMixin, Div):
         self._raw = Raw("scene")
         self.gizmos = Gizmos()
         with view.hold():
+            view.add(*self.view_parts())
             view.add(self._raw, self.gizmos, CameraTools(axes=self._supports_clipping()),
                      _TabTools(self))
             if self._supports_clipping():
@@ -132,8 +133,12 @@ class ViewTab(PropertyPanelMixin, Div):
             self.view.draw()
         return self.scene
 
+    def view_parts(self):
+        """Parts added to the view before the generic ones."""
+        return []
+
     def draw(self):
-        raise NotImplementedError("draw method must be implemented in subclass")
+        self.view.draw()
 
     @property
     def wgpu(self):

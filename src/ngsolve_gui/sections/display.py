@@ -33,50 +33,54 @@ class MeshDisplaySection(Section):
 
     def __init__(self, comp):
         self.comp = comp
+        part = comp.view.part
+        el3d = part("elements3d")
 
         chips = [
-            Chip("Wireframe", "mdi-grid", comp.wireframe_visible),
-            Chip("Elements 2D", "mdi-triangle-outline", comp.elements2d_visible),
+            Chip("Wireframe", "mdi-grid", part("wireframe").visible),
+            Chip("Elements 2D", "mdi-triangle-outline", part("elements2d").visible),
         ]
-        if comp.mesh.dim == 3:
-            chips.append(Chip("Elements 3D", "mdi-cube-outline", comp.elements3d_visible))
-        chips.append(Chip("Elements 1D", "mdi-vector-line", comp.elements1d_visible))
-        chips.append(Chip("Identifications", "mdi-link-variant", comp.identifications_visible))
+        if el3d.applies():
+            chips.append(Chip("Elements 3D", "mdi-cube-outline", el3d.visible))
+        chips.append(Chip("Elements 1D", "mdi-vector-line", part("segments").visible))
+        chips.append(Chip("Identifications", "mdi-link-variant", part("identifications").visible))
         chips.append(Chip("Hover", "mdi-cursor-default-click", comp.picking_enabled))
 
         shrink = QSlider(
-            ui_model_value=comp.shrink_value,
+            ui_model_value=el3d.shrink,
             ui_min=0.0, ui_max=1.0, ui_step=0.01, ui_label=True, ui_dense=True,
         )
 
         # Curved display: a master toggle plus the (disabled-until-on) order input.
+        curvature = part("curvature")
         curve_order = QInput(
-            ui_type="number", ui_model_value=comp.mesh_curvature_order,
+            ui_type="number", ui_model_value=curvature.order,
             ui_dense=True, ui_class=input_tiny,
-            ui_disable=computed(lambda: not comp.mesh_curvature_enabled.value),
+            ui_disable=computed(lambda: not curvature.enabled.value),
         )
 
+        subdivision = part("subdivision")
         subdiv = QInput(
-            ui_type="number", ui_model_value=comp.subdivision,
+            ui_type="number", ui_model_value=subdivision.value,
             ui_dense=True, ui_class=input_tiny,
         )
 
         advanced = [
-            Toggle("Curved display", comp.mesh_curvature_enabled),
+            Toggle("Curved display", curvature.enabled),
             field("Curve order", curve_order),
             field(
-                f"Subdivision (-1 auto, 0 linear, max {comp.SUBDIVISION_MAX})",
+                f"Subdivision (-1 auto, 0 linear, max {subdivision.MAX})",
                 subdiv,
             ),
         ]
 
-        if comp.mesh.dim == 3:
+        if el3d.applies():
             subdiv3d = QInput(
-                ui_type="number", ui_model_value=comp.elements3d_subdivision,
+                ui_type="number", ui_model_value=el3d.subdivision,
                 ui_dense=True, ui_class=input_tiny,
             )
             advanced.append(field(
-                f"3D subdivision (-1 auto, 0 linear, max {comp.ELEMENTS3D_SUBDIV_MAX})",
+                f"3D subdivision (-1 auto, 0 linear, max {el3d.SUBDIVISION_MAX})",
                 subdiv3d,
             ))
 

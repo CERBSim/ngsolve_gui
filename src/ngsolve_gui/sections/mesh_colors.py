@@ -34,7 +34,7 @@ class MeshColorSection(Section):
     def _mode_selected(self, val):
         if val in ("eltype", "quality") and self.comp.mesh.dim == 3:
             # show the volume mesh so volume-element filtering is visible
-            self.comp.elements3d_visible.value = True
+            self.comp.view.part("elements3d").visible.value = True
 
     # -- By region (grouped region colors) --------------------------------
     def _build_region(self, comp):
@@ -48,7 +48,7 @@ class MeshColorSection(Section):
         edge_descriptors = list(comp.mesh.ngmesh.EdgeDescriptors())
         if edge_descriptors:
             enames = [ed.name for ed in edge_descriptors]
-            saved = comp.edge_colors.value
+            saved = comp.view.part("segments").edge_colors.value
             self.ecolors = {name: saved.get(name, [0, 0, 0, 255]) for name in set(enames)}
             ecolors = [
                 (c[0] / 255, c[1] / 255, c[2] / 255, c[3] / 255 if c[3] > 1 else c[3])
@@ -71,16 +71,17 @@ class MeshColorSection(Section):
 
     # -- By element type (3D visibility) ----------------------------------
     _TYPE_LABELS = {
-        "ET.TET": "Tetrahedra",
-        "ET.PRISM": "Prisms · boundary layer",
-        "ET.PYRAMID": "Pyramids · closure",
-        "ET.HEX": "Hexahedra",
+        "TET": "Tetrahedra",
+        "PRISM": "Prisms · boundary layer",
+        "PYRAMID": "Pyramids · closure",
+        "HEX": "Hexahedra",
     }
 
     def _build_eltype(self, comp):
-        types = comp.element_types_3d()
+        element_filter = comp.view.part("element_filter")
+        types = element_filter.element_types()
         visible = Observable(frozenset(types), "visible_element_types")
-        visible.on_change(lambda v, _o: comp.set_visible_element_types(set(v)))
+        visible.on_change(lambda v, _o: element_filter.show_types(v))
         rows = [self._type_row(visible, et, count) for et, count in types.items()]
         return Div(*rows, ui_class="column " + str(gap_sm))
 
@@ -195,27 +196,24 @@ class MeshColorSection(Section):
             if fd.bcname in colmap:
                 fd.color = colmap[fd.bcname]
             colors.append([int(fd.color[i] * 255) for i in range(4)])
-        self.comp.elements2d.gpu_objects.colormap.set_colormap(colors)
-        self.comp.elements2d.set_needs_update()
-        self.comp.wgpu.scene.render()
+        elements2d = self.comp.view.part("elements2d").renderer
+        elements2d.gpu_objects.colormap.set_colormap(colors)
+        elements2d.set_needs_update()
+        self.comp.view.render()
 
     def change_edge_color(self, name, color):
         colmap = dict(zip(name, color))
         for n, c in colmap.items():
             self.ecolors[n] = [int(c[i] * 255) for i in range(4)]
-        self.comp.edge_colors._value = self.ecolors
-        edge_descriptors = list(self.comp.mesh.ngmesh.EdgeDescriptors())
-        colors = [self.ecolors[ed.name] for ed in edge_descriptors]
-        self.comp.elements1d._user_colors = colors
-        self.comp.elements1d.set_needs_update()
-        self.comp.wgpu.scene.render()
+        self.comp.view.part("segments").edge_colors.value = dict(self.ecolors)
 
     def change_d_color(self, name, color):
         colmap = dict(zip(name, color))
         for d, c in colmap.items():
             self.dcolors[d] = [int(c[i] * 255) for i in range(4)]
         colors = [self.dcolors[d] for d in self.comp.mesh.GetMaterials()]
-        if self.comp.elements3d is not None:
-            self.comp.elements3d.colormap.set_colormap(colors)
-            self.comp.elements3d.set_needs_update()
-            self.comp.wgpu.scene.render()
+        elements3d = self.comp.view.part("elements3d").renderer
+        if elements3d is not None:
+            elements3d.colormap.set_colormap(colors)
+            elements3d.set_needs_update()
+            self.comp.view.render()

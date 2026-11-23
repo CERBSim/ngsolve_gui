@@ -2,7 +2,7 @@
 
 from ngapp.components import Observable
 
-from .part import Layer
+from ..part import Layer
 
 
 class Raw(Layer):
