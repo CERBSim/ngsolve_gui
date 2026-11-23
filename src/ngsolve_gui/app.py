@@ -177,6 +177,9 @@ class NGSolveGui(App):
         self.system_monitor = SystemMonitor() if system_monitor_available() else None
 
         # -- Redraw throttling state --
+        from ngapp.utils import get_environment
+
+        self._page = get_environment().page
         self._redraw_lock = threading.Lock()
         self._redraw_pending = False
         self._redraw_timer_running = False
@@ -407,6 +410,7 @@ class NGSolveGui(App):
                 comp.apply_viewport_theme()
 
     def redraw(self, *args, **kwargs):
+        self._page_alive()
         self.app_data.set_needs_redraw()
         self._request_redraw()
 
@@ -450,5 +454,22 @@ class NGSolveGui(App):
         self._redraw_pending = False
         self._last_redraw_time = time.monotonic()
         comp = self.active_component
-        if comp is not None and hasattr(comp, "redraw"):
+        if comp is None or not hasattr(comp, "redraw") or not self._page_alive():
+            return
+        try:
             comp.redraw()
+        except Exception:
+            # the page closed mid-render: the app exits soon or is replaced
+            if self._page_alive():
+                raise
+
+    def _page_alive(self):
+        """False while no page is connected (the app exits soon). A reload
+        runs the script again in a new app, the script of this one ends."""
+        from ngapp.utils import get_environment
+        from webgpu import platform
+
+        if get_environment().page != self._page:
+            raise SystemExit
+        link = getattr(platform, "websocket_server", None)
+        return link is None or getattr(link, "is_connected", True)

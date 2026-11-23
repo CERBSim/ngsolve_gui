@@ -241,6 +241,7 @@ class _StatBar(Div):
             ui_track_color="grey-3",
             ui_class=monitor_bar,
             ui_rounded=True,
+            ui_instant_feedback=True,
         )
         proc_bar = QLinearProgress(
             ui_value=computed(lambda: proc.value if val.value[3] is not None else 0),
@@ -248,6 +249,7 @@ class _StatBar(Div):
             ui_track_color="grey-3",
             ui_class=monitor_subbar,
             ui_rounded=True,
+            ui_instant_feedback=True,
         )
 
         icon = QIcon(ui_name=icon_name, ui_size="14px", ui_class=monitor_icon)
