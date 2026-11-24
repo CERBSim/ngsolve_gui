@@ -115,15 +115,19 @@ def _changed(value):
 
 @standalone_app_test
 def test_state_round_trip_per_preset():
-    from ngsolve import CF, Mesh, unit_cube, x, y, z
+    from netgen.occ import Box, OCCGeometry, Pnt
+    from ngsolve import CF, Mesh, x, y, z
 
     from ngsolve_gui.app_data import AppData
     from ngsolve_gui.function import FunctionComponent
+    from ngsolve_gui.geometry import GeometryComponent
     from ngsolve_gui.mesh import MeshComponent
 
-    mesh = Mesh(unit_cube.GenerateMesh(maxh=0.5))
+    geo = OCCGeometry(Box(Pnt(0, 0, 0), Pnt(1, 1, 1)))
+    mesh = Mesh(geo.GenerateMesh(maxh=0.5))
     for cls, data in ((MeshComponent, {"obj": mesh}),
-                      (FunctionComponent, {"obj": CF((x, y, z)), "mesh": mesh})):
+                      (FunctionComponent, {"obj": CF((x, y, z)), "mesh": mesh}),
+                      (GeometryComponent, {"obj": geo})):
         app_data = AppData()
         tab = app_data.add_tab("t", cls, data, app_data)
         mount(tab)

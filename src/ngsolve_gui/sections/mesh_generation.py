@@ -41,10 +41,11 @@ class MeshGenerationSection(Section):
     def __init__(self, comp):
         self.comp = comp
 
-        self.maxh = MeshingInput(comp.maxh)
-        self.segments = MeshingInput(comp.segments_per_edge)
-        self.curvature = MeshingInput(comp.curvaturesafety)
-        self.closeedge = MeshingInput(comp.closeedgefac)
+        meshing = comp.view.part("meshing")
+        self.maxh = MeshingInput(meshing.maxh)
+        self.segments = MeshingInput(meshing.segments_per_edge)
+        self.curvature = MeshingInput(meshing.curvaturesafety)
+        self.closeedge = MeshingInput(meshing.closeedgefac)
 
         self.create_btn = QBtn(
             ui_icon="mdi-vector-triangle",

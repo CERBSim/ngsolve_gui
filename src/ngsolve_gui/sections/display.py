@@ -17,10 +17,11 @@ class GeometryDisplaySection(Section):
 
     def __init__(self, comp):
         self.comp = comp
+        layer = comp.view.part("geometry")
         chips = chip_row(
-            Chip("Faces", "mdi-vector-square", comp.show_faces),
-            Chip("Edges", "mdi-vector-line", comp.show_edges),
-            Chip("Vertices", "mdi-vector-point", comp.show_vertices),
+            Chip("Faces", "mdi-vector-square", layer.show_faces),
+            Chip("Edges", "mdi-vector-line", layer.show_edges),
+            Chip("Vertices", "mdi-vector-point", layer.show_vertices),
             Chip("Hover", "mdi-cursor-default-click", comp.picking_enabled),
         )
         super().__init__(chips, icon="mdi-eye", title="Display", opened=True)

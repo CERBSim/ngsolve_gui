@@ -1,339 +1,51 @@
-import threading
-from collections import defaultdict
-
 from ngapp.components import *
 
-from ngsolve_webgpu import *
-from ngsolve_webgpu.pick import GeoPickResult
-import ngsolve as ngs
-import netgen.occ as ngocc
 from .tab import ViewTab
+from .view.ngsolve.presets import geometry_view
 
 
 class GeometryComponent(ViewTab):
+    _picking_always_active = True
+
     def __init__(self, name, data, app_data):
         self.geo = data["obj"]
-        self.selected = None
-        self._selected_items = []  # list of (kind, index) — ordered, no dups
-        # (kind, index) of the selected entities, and the errors of the last edit
-        self.selection = Observable((), "selection")
-        self.maxh_error = Observable("", "maxh_error")
-        self.name_error = Observable("", "name_error")
-        self._picking_always_active = True
-        s = app_data.saved_settings()
-        self.show_edges = Observable(s.get("show_edges", True), "show_edges")
-        self.show_faces = Observable(s.get("show_faces", True), "show_faces")
-        self.show_vertices = Observable(s.get("show_vertices", False), "show_vertices")
-        self.maxh = Observable(s.get("maxh", 1000), "maxh", converter=float)
-        self.segments_per_edge = Observable(s.get("segments_per_edge", 0.2), "segments_per_edge", converter=float)
-        self.curvaturesafety = Observable(s.get("curvaturesafety", 1.5), "curvaturesafety", converter=float)
-        self.closeedgefac = Observable(s.get("closeedgefac", None), "closeedgefac")
-        self.pick_solid = Observable(False, "pick_solid")
-        self.pick_faces = Observable(True, "pick_faces")
-        self.pick_edges = Observable(True, "pick_edges")
-        self.pick_vertices = Observable(False, "pick_vertices")
-        self._hidden_solids = set()  # set of hidden solid indices
-        self._hidden_edges = set()  # set of explicitly hidden edge indices
-        self._hidden_vertices = set()  # set of explicitly hidden vertex indices
-        self._face_to_solids = defaultdict(set)  # face_idx -> set of solid indices
         super().__init__(name, data, app_data)
-        self.show_edges.on_change(self._apply_show_edges)
-        self.show_faces.on_change(self._apply_show_faces)
-        self.show_vertices.on_change(self._apply_show_vertices)
-        self._updating_pick_modes = False
-        self.pick_solid.on_change(self._on_pick_solid_change)
-        self.pick_faces.on_change(self._on_pick_entity_change)
-        self.pick_edges.on_change(self._on_pick_entity_change)
-        self.pick_vertices.on_change(self._on_pick_entity_change)
 
-    # -- Keybinding support ---------------------------------------------
-
-    def tab_keybindings(self):
-        kb = {"flat": [], "modes": []}
-        kb["modes"].append(
-            (
-                "s",
-                "Show",
-                [
-                    ("e", self.toggle_edges, "Toggle edges"),
-                    ("v", self.toggle_vertices, "Toggle vertices"),
-                    ("h", self._hide_selected_shape, "Hide selected"),
-                    ("u", self._show_all_shapes, "Unhide all"),
-                ],
-            )
-        )
-        kb["modes"].append(
-            (
-                "p",
-                "Pick",
-                [
-                    ("s", self.pick_solid.toggle, "Solids"),
-                    ("f", self.pick_faces.toggle, "Faces"),
-                    ("e", self.pick_edges.toggle, "Edges"),
-                    ("v", self.pick_vertices.toggle, "Vertices"),
-                ],
-            )
-        )
-        return kb
-
-    def toggle_edges(self):
-        self.show_edges.toggle()
-
-    def _apply_show_edges(self, val, _old):
-        self.geo_renderer.edges.active = val
-        self.geo_renderer.edges.set_needs_update()
-        self.scene.render()
-
-    def toggle_faces(self):
-        self.show_faces.toggle()
-
-    def _apply_show_faces(self, val, _old):
-        self.geo_renderer.faces.active = val
-        self.geo_renderer.faces.set_needs_update()
-        self.scene.render()
-
-    def toggle_vertices(self):
-        self.show_vertices.toggle()
-
-    def _apply_show_vertices(self, val, _old):
-        self.geo_renderer.vertices.active = val or self.pick_vertices.value
-        self.geo_renderer.vertices.set_needs_update()
-        self.scene.render()
-
-    def _create_meshing_geo(self):
-        return ngocc.OCCGeometry(self.geo.shape)
-
-    def _meshing_options(self):
-        return {
-            "maxh": self.maxh.value,
-            "segmentsperedge": self.segments_per_edge.value,
-            "curvaturesafety": self.curvaturesafety.value,
-            "closeedgefac": self.closeedgefac.value,
-        }
-
-    def create_mesh(self, on_done=None):
-        """Generate a volume mesh from this geometry.
-        """
-        print("Generate mesh...")
-        import netgen.meshing as ngm
-        import ngsolve as ngs
-        from .meshing_preview import set_terminate, get_terminate, get_app
-
-        geo = self._create_meshing_geo()
-        opts = self._meshing_options()
-        done = threading.Event()
-
-        def work():
-            error = None
-            ng_mesh = ngm.Mesh()
-            try:
-                set_terminate(False)
-                with ngs.TaskManager():
-                    geo.GenerateMesh(mesh=ng_mesh, **opts)
-            except Exception as e:  # noqa: BLE001 — surface to dialog below
-                error = e
-            finally:
-                done.set()
-
-            aborted = get_terminate()
-            set_terminate(False)
-
-            try:
-                if error is not None:
-                    msg = str(error)
-                    aborted = aborted or isinstance(error, KeyboardInterrupt) or "stop" in msg.lower()
-                    if not aborted:
-                        self.quasar.dialog(
-                            {"title": "Error generating mesh", "message": msg}
-                        )
-                elif aborted:
-                    pass
-                else:
-                    mesh = ngs.Mesh(ng_mesh)
-                    from .mesh import MeshComponent
-
-                    self.app_data.add_tab(
-                        "Mesh_" + self.title, MeshComponent, {"obj": mesh}, self.app_data
-                    )
-            finally:
-                if on_done is not None:
-                    on_done()
-
-        thread = threading.Thread(target=work, name="Meshing", daemon=True)
-        thread.start()
-
-        app = get_app()
-        if app is not None:
-            app.footer.show("mesh generation", thread, done)
+    def view_parts(self):
+        return geometry_view(self.geo, **self.data)
 
     @property
     def clipping(self):
         return self.app_data.clipping
 
-    def _show_all_shapes(self):
-        self._hidden_solids.clear()
-        self._hidden_edges.clear()
-        self._hidden_vertices.clear()
-        colors = self.geo_renderer.faces.colors
-        for i in range(len(colors) // 4):
-            colors[i * 4 + 3] = 1.0
-        self.geo_renderer.faces.set_colors(colors)
-        colors = self.geo_renderer.edges.colors
-        for i in range(len(colors) // 4):
-            colors[i * 4 + 3] = 1.0
-        self.geo_renderer.edges.set_colors(colors)
-        colors = self.geo_renderer.vertices.colors
-        for i in range(len(colors) // 4):
-            colors[i * 4 + 3] = 1.0
-        self.geo_renderer.vertices.set_colors(colors)
-        self.wgpu.scene.render()
+    @property
+    def selection(self):
+        return self.view.part("selection")
 
-    def _build_face_to_solids(self):
-        """Build mapping from face index to set of solid indices that contain it."""
-        if self._face_to_solids:
-            return
-        try:
-            solids = list(self.geo.shape.solids)
-            n_faces = len(self.geo.faces)
-            for solid_idx, solid in enumerate(solids):
-                centers = {tuple(round(c, 8) for c in f.center) for f in solid.faces}
-                for fi in range(n_faces):
-                    gc = tuple(round(c, 8) for c in self.geo.faces[fi].center)
-                    if gc in centers:
-                        self._face_to_solids[fi].add(solid_idx)
-        except Exception:
-            pass
+    @property
+    def meshing(self):
+        return self.view.part("meshing")
 
-    def _build_edge_to_faces(self):
-        """Build mapping from edge index to set of face indices that contain it."""
-        if hasattr(self, '_edge_to_faces') and self._edge_to_faces:
-            return
-        self._edge_to_faces = defaultdict(set)
-        try:
-            edge_centers = [tuple(round(c, 8) for c in e.center) for e in self.geo.edges]
-            center_to_edge = {}
-            for ei, ec in enumerate(edge_centers):
-                center_to_edge[ec] = ei
-            for fi, face in enumerate(self.geo.faces):
-                for e in face.edges:
-                    ec = tuple(round(c, 8) for c in e.center)
-                    if ec in center_to_edge:
-                        self._edge_to_faces[center_to_edge[ec]].add(fi)
-        except Exception:
-            pass
+    @property
+    def layer(self):
+        return self.view.part("geometry")
 
-    def _build_vertex_to_faces(self):
-        """Build mapping from vertex index to set of face indices that contain it."""
-        if hasattr(self, '_vertex_to_faces') and self._vertex_to_faces:
-            return
-        self._vertex_to_faces = defaultdict(set)
-        try:
-            verts = list(set(self.geo.shape.vertices))
-            vert_positions = [tuple(round(c, 8) for c in v.p) for v in verts]
-            pos_to_vert = {}
-            for vi, vp in enumerate(vert_positions):
-                pos_to_vert[vp] = vi
-            for fi, face in enumerate(self.geo.faces):
-                for v in face.vertices:
-                    vp = tuple(round(c, 8) for c in v.p)
-                    if vp in pos_to_vert:
-                        self._vertex_to_faces[pos_to_vert[vp]].add(fi)
-        except Exception:
-            pass
+    def create_mesh(self, on_done=None):
+        """Mesh the geometry in a thread and open the mesh in a new tab."""
+        from .mesh import MeshComponent
+        from .meshing_preview import get_app
 
-    def _update_edge_vertex_visibility(self):
-        """Hide edges/vertices that have no visible faces attached."""
-        face_colors = self.geo_renderer.faces.colors
-        hidden_faces = {i for i in range(len(face_colors) // 4) if face_colors[i * 4 + 3] == 0.0}
+        def on_mesh(mesh):
+            self.app_data.add_tab("Mesh_" + self.title, MeshComponent, {"obj": mesh},
+                                  self.app_data)
 
-        self._build_edge_to_faces()
-        edge_colors = self.geo_renderer.edges.colors
-        for ei in range(len(edge_colors) // 4):
-            faces = self._edge_to_faces.get(ei, set())
-            hidden = ei in self._hidden_edges or (faces and faces.issubset(hidden_faces))
-            edge_colors[ei * 4 + 3] = 0.0 if hidden else 1.0
-        self.geo_renderer.edges.set_colors(edge_colors)
+        def on_error(msg):
+            self.quasar.dialog({"title": "Error generating mesh", "message": msg})
 
-        self._build_vertex_to_faces()
-        vert_colors = self.geo_renderer.vertices.colors
-        for vi in range(len(vert_colors) // 4):
-            faces = self._vertex_to_faces.get(vi, set())
-            hidden = vi in self._hidden_vertices or (faces and faces.issubset(hidden_faces))
-            vert_colors[vi * 4 + 3] = 0.0 if hidden else 1.0
-        self.geo_renderer.vertices.set_colors(vert_colors)
-
-    def _get_entity(self, kind, index):
-        """Return the OCC shape object for a (kind, index) selection."""
-        try:
-            if kind == "face":
-                return self.geo.faces[index]
-            elif kind == "edge":
-                return self.geo.edges[index]
-            elif kind == "vertex":
-                return list(self.geo.shape.vertices)[index]
-            elif kind == "solid":
-                return list(self.geo.shape.solids)[index]
-        except (IndexError, Exception):
-            pass
-        return None
-
-    def change_maxh(self, event):
-        value = event.value
-        try:
-            if value is None or value == "":
-                value = None
-            else:
-                value = float(value)
-                if value <= 0:
-                    raise ValueError("Max mesh size must be positive.")
-            self.maxh_error.value = ""
-            for kind, idx in self._selected_items:
-                entity = self._get_entity(kind, idx)
-                if entity is not None:
-                    entity.maxh = value if value is not None else 1e99
-        except ValueError as e:
-            self.maxh_error.value = str(e)
-
-    def change_name(self, event):
-        value = event.value
-        try:
-            if value == "":
-                value = None
-            for kind, idx in self._selected_items:
-                entity = self._get_entity(kind, idx)
-                if entity is not None:
-                    entity.name = value
-            self.name_error.value = ""
-        except ValueError as e:
-            self.name_error.value = str(e)
-
-    def _hide_selected_shape(self, event=None):
-        if not self._selected_items:
-            return
-        face_colors = self.geo_renderer.faces.colors
-        for kind, idx in self._selected_items:
-            if kind == "face":
-                face_colors[idx * 4 + 3] = 0.0
-            elif kind == "edge":
-                self._hidden_edges.add(idx)
-            elif kind == "vertex":
-                self._hidden_vertices.add(idx)
-            elif kind == "solid":
-                self._hidden_solids.add(idx)
-        # For solids: hide faces only if ALL their solids are hidden
-        if any(k == "solid" for k, _ in self._selected_items):
-            self._build_face_to_solids()
-            for face_idx, solids in self._face_to_solids.items():
-                if solids and solids.issubset(self._hidden_solids):
-                    face_colors[face_idx * 4 + 3] = 0.0
-                elif not solids.issubset(self._hidden_solids):
-                    face_colors[face_idx * 4 + 3] = 1.0
-        self.geo_renderer.faces.set_colors(face_colors)
-        self._update_edge_vertex_visibility()
-        self._selected_items = []
-        self._update_selection_buffers()
-        self._update_selection_panel()
-        self.scene.render()
+        thread, done = self.meshing.generate(on_mesh, on_error, on_done)
+        app = get_app()
+        if app is not None:
+            app.footer.show("mesh generation", thread, done)
 
     def property_subtitle(self):
         return "Geometry"
@@ -370,198 +82,18 @@ class GeometryComponent(ViewTab):
         save_file_dialog(data, filename)
 
     def draw(self):
-        self.geo_renderer = GeometryRenderer(self.geo, clipping=self.clipping)
-        self.geo_renderer.edges.active = self.show_edges.value
-        self.geo_renderer.faces.active = self.show_faces.value
-        # hover picking: overlay + highlight on mousemove
-        self._geo_click_pending = False
-        self._last_pick = None  # (event, kind) of the most recent hover pick
-        scene = self.show(
-            [self.geo_renderer],
-            [(self.geo_renderer.faces, "face"), (self.geo_renderer.edges, "edge"),
-             (self.geo_renderer.vertices, "vertex")],
-        )
-        self.clipping.center = 0.5 * (scene.bounding_box[1] + scene.bounding_box[0])
-
-        self._update_pick_modes()
-
-        def on_click(event):
-            if event["button"] != 0:
-                return
-            self._geo_click_pending = True
-            self._click_ctrl = event.get("ctrlKey", False)
-            if self._last_pick is not None:
-                self._on_pick_select(self._last_pick[0], self._last_pick[1])
-            else:
-                self._on_pick_background(event)
-        scene.input_handler.on_click(on_click)
+        scene = self.view.draw()
+        if scene is not None:
+            self.clipping.center = 0.5 * (scene.bounding_box[1] + scene.bounding_box[0])
 
     def _on_pick_select(self, event, kind="face"):
-        try:
-            self._last_pick = (event, kind)  # remember for click-to-commit
-            if not self._geo_click_pending and not self.picking_enabled.value:
-                return
-            result = GeoPickResult(event, self.geo, self.scene.options)
-            pos = result.world_pos
-            coords = f"({pos[0]:>9.4f}, {pos[1]:>9.4f}, {pos[2]:>9.4f})"
-
-            if self.pick_solid.value and result.geo_type == 2:
-                solid_idx = int(self.geo_renderer.faces._solid_ids[result.index])
-                if solid_idx in self._hidden_solids:
-                    self._clear_highlight()
-                    self.pick_overlay.hide()
-                    self.scene._render_highlight()
-                    return
-                solid_name = ""
-                try:
-                    solid_name = list(self.geo.shape.solids)[solid_idx].name or ""
-                except Exception:
-                    pass
-                text = f"{'Solid':<8s}{solid_idx:<6d} {solid_name:<12s} {coords}"
-                for hl in self._highlights:
-                    hl.renderer_id = event.obj_id
-                    hl.element_id = 0xFFFFFFFF
-                    hl.region_index = 0xFFFFFFFF
-                    hl.solid_index = solid_idx
-                    hl.update_buffer()
-            else:
-                name = result.name or ""
-                text = f"{result.kind_label:<8s}{result.index:<6d} {name:<12s} {coords}"
-                for hl in self._highlights:
-                    hl.renderer_id = event.obj_id
-                    hl.element_id = 0xFFFFFFFF
-                    hl.region_index = result.index
-                    hl.solid_index = 0xFFFFFFFF
-                    hl.update_buffer()
-
-            self.pick_overlay.show_text(text)
-
-            # Handle click → update selection
-            if self._geo_click_pending:
-                self._geo_click_pending = False
-                if self.pick_solid.value and result.geo_type == 2:
-                    sel_kind = "solid"
-                    sel_index = solid_idx
-                else:
-                    sel_kind = {2: "face", 1: "edge", 0: "vertex"}.get(result.geo_type, "face")
-                    sel_index = result.index
-                item = (sel_kind, sel_index)
-                if getattr(self, '_click_ctrl', False):
-                    if item in self._selected_items:
-                        self._selected_items.remove(item)
-                    else:
-                        self._selected_items.append(item)
-                else:
-                    self._selected_items = [item]
-                self._update_selection_buffers()
-                self._update_selection_panel()
-
-            self.scene._render_highlight()
-        except Exception:
-            self.pick_overlay.hide()
+        self.selection.hover(event, kind)
 
     def _on_pick_out(self, ev):
-        self._last_pick = None
-        self._clear_highlight()
-        if self._selected_items:
-            n = len(self._selected_items)
-            self.pick_overlay.show_text(
-                f"{n} selected" if n > 1 else self._describe_item(self._selected_items[0])
-            )
-        else:
-            self.pick_overlay.hide()
-        self.scene.render()
+        self.selection.out(ev)
 
     def _on_pick_background(self, ev):
-        self._last_pick = None
-        if self._geo_click_pending:
-            self._geo_click_pending = False
-            self._selected_items = []
-            self._update_selection_buffers()
-            self._clear_highlight()
-            self.pick_overlay.hide()
-            self._update_selection_panel()
-        else:
-            self._clear_highlight()
-            if self._selected_items:
-                n = len(self._selected_items)
-                self.pick_overlay.show_text(
-                    f"{n} selected" if n > 1 else self._describe_item(self._selected_items[0])
-                )
-            else:
-                self.pick_overlay.hide()
-        self.scene._render_highlight()
-
-    def _describe_item(self, item):
-        kind, idx = item
-        if kind == "face":
-            name = self.geo.faces[idx].name or ""
-            return f"Face {idx}" + (f"  {name}" if name else "")
-        elif kind == "edge":
-            name = self.geo.edges[idx].name or ""
-            return f"Edge {idx}" + (f"  {name}" if name else "")
-        elif kind == "vertex":
-            return f"Vertex {idx}"
-        elif kind == "solid":
-            try:
-                name = list(self.geo.shape.solids)[idx].name or ""
-            except Exception:
-                name = ""
-            return f"Solid {idx}" + (f"  {name}" if name else "")
-        return f"{kind} {idx}"
-
-    def _update_selection_buffers(self):
-        """Update GPU selection buffers from _selected_items."""
-        face_sel, edge_sel, vert_sel = [], [], []
-        for kind, idx in self._selected_items:
-            if kind == "face":
-                face_sel.append(idx)
-            elif kind == "edge":
-                edge_sel.append(idx)
-            elif kind == "vertex":
-                vert_sel.append(idx)
-        self.geo_renderer.faces.set_selection(face_sel)
-        self.geo_renderer.edges.set_selection(edge_sel)
-        self.geo_renderer.vertices.set_selection(vert_sel)
-
-    def _update_selection_panel(self):
-        items = tuple(self._selected_items)
-        self.selected = items[-1] if items else None
-        self.selection.value = items
-
-    def _on_pick_solid_change(self, val, _old):
-        if self._updating_pick_modes:
-            return
-        self._updating_pick_modes = True
-        if val:
-            self.pick_faces.value = False
-            self.pick_edges.value = False
-            self.pick_vertices.value = False
-        self._update_pick_modes()
-        self._updating_pick_modes = False
-
-    def _on_pick_entity_change(self, val, _old):
-        if self._updating_pick_modes:
-            return
-        self._updating_pick_modes = True
-        if val:
-            self.pick_solid.value = False
-        self._update_pick_modes()
-        self._updating_pick_modes = False
-
-    def _update_pick_modes(self):
-        solid = self.pick_solid.value
-        faces = self.pick_faces.value or solid
-        edges = self.pick_edges.value
-        vertices = self.pick_vertices.value
-        self.geo_renderer.faces._select_active = faces
-        self.geo_renderer.edges._select_active = edges
-        self.geo_renderer.vertices._select_active = vertices
-        self.geo_renderer.vertices.active = vertices or self.show_vertices.value
-        self.geo_renderer.vertices.set_needs_update()
-        if hasattr(self.scene, '_select_buffer_valid'):
-            self.scene._select_buffer_valid = False
-        self.scene.render()
+        self.selection.background(ev)
 
 
 # Register with the component registry

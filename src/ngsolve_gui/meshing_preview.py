@@ -3,13 +3,11 @@
 How it works:
 
 * `GenerateMesh` on the geometry classes is monkey-patched. Whenever it runs
-  and a geometry tab is currently shown, a `MeshingPreview` is started for the
+  and a geometry tab is currently shown, its `meshing_preview` layer is fed for the
   duration of the call. This covers both the "Generate mesh" button (whose
   `create_mesh` calls `GenerateMesh`) *and* any user script that calls
   `geo.GenerateMesh(...)` after `Draw(geo)`.
 """
-
-import threading
 
 _app = None
 _patched = False
@@ -130,7 +128,6 @@ def _make_wrapper(cls, orig):
             return orig(self, *args, **kwargs)
 
         if args:
-            preview.cancel()
             return orig(self, *args, **kwargs)
 
         mesh = kwargs.get("mesh")
@@ -154,153 +151,17 @@ def _make_wrapper(cls, orig):
 
 
 def _try_start_preview():
-    """Create a preview bound to the active geometry tab, or None if unavailable."""
+    """A poller showing the mesh in the active tab's preview layer, or None."""
     app = _app
     if app is None:
         return None
     try:
         comp = app.active_component
+        layer = comp.view.part("meshing_preview")
     except Exception:
         return None
-    # Only overlay onto a drawn geometry scene.
-    if comp is None or not hasattr(comp, "geo_renderer") or not hasattr(comp, "scene"):
+    if layer is None or comp.view.scene is None:
         return None
-    if getattr(comp, "geo_renderer", None) is None:
-        return None
-    return MeshingPreview(app, comp)
+    from .view.ngsolve.preview import PreviewPoller
 
-
-class MeshingPreview:
-    """Overlays the growing surface mesh on the dimmed geometry of one tab."""
-
-    _poll_interval = 0.15
-    _interaction_quiet = 0.2
-
-    def __init__(self, app, comp):
-        self.app = app
-        self.comp = comp
-        self.mesh = None
-        self._stop = threading.Event()
-        self._cancelled = False
-        self._thread = None
-        self._attached = False
-        self._frozen = False
-        self._tris = None
-        self._wire = None
-        self._mdata = None
-        self._faces_were_active = None
-
-    def cancel(self):
-        """Abandon before binding (e.g. unsupported call form)."""
-        self._cancelled = True
-
-    def bind(self, mesh):
-        if self._cancelled:
-            return
-        self.mesh = mesh
-        self._thread = threading.Thread(
-            target=self._poll, name="MeshPreview", daemon=True
-        )
-        self._thread.start()
-
-    def stop(self):
-        self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=1.0)
-        self._detach()
-
-    def _poll(self):
-        try:
-            from netgen.libngpy._meshing import _GetStatus
-        except Exception:
-            _GetStatus = None
-
-        last_ts = None
-        while not self._stop.is_set():
-            try:
-                n2d = len(self.mesh.Elements2D())
-                nfd = len(self.mesh.FaceDescriptors())
-                ts = self.mesh._timestamp
-            except Exception:
-                n2d, nfd, ts = 0, 0, None
-
-            if not self._attached and n2d > 0 and nfd > 0:
-                self._attach()
-                last_ts = ts
-
-            if self._attached and not self._frozen:
-                status = ""
-                if _GetStatus is not None:
-                    try:
-                        status, _ = _GetStatus()
-                    except Exception:
-                        status = ""
-                if "volume" in (status or "").lower():
-                    self._frozen = True
-                    self._refresh()  # one last frame with the full surface mesh
-                elif ts != last_ts and not self._interacting():
-                    last_ts = ts
-                    self._refresh()
-
-            self._stop.wait(self._poll_interval)
-
-    def _attach(self):
-        try:
-            from ngsolve_webgpu.mesh import MeshData, MeshElements2d, MeshWireframe2d
-
-            clip = getattr(self.comp, "clipping", None)
-            self._mdata = MeshData(self.mesh)
-            self._mdata.subdivision = 1
-            self._tris = MeshElements2d(self._mdata, clipping=clip)
-            self._wire = MeshWireframe2d(self._mdata, clipping=clip)
-            self._hide_faces()
-            scene = self.comp.scene
-            scene.render_objects = list(scene.render_objects) + [self._tris, self._wire]
-            self._attached = True
-            self._refresh()
-        except Exception as e:
-            print("mesh preview: attach failed:", e)
-            self._stop.set()
-
-    def _detach(self):
-        try:
-            scene = self.comp.scene
-            drop = {id(self._tris), id(self._wire)}
-            scene.render_objects = [
-                ro for ro in scene.render_objects if id(ro) not in drop
-            ]
-            if self._faces_were_active is not None:
-                self.comp.geo_renderer.faces.active = self._faces_were_active
-        except Exception:
-            pass
-        self._render()
-
-    def _hide_faces(self):
-        try:
-            faces = self.comp.geo_renderer.faces
-            self._faces_were_active = faces.active
-            faces.active = False
-        except Exception:
-            self._faces_were_active = None
-
-    def _refresh(self):
-        try:
-            self._mdata.set_needs_update()
-        except Exception:
-            pass
-        for ro in (self._tris, self._wire):
-            try:
-                ro.set_needs_update()
-            except Exception:
-                pass
-        self._render()
-
-    def _render(self):
-        try:
-            self.comp.scene.render()
-        except Exception:
-            pass
-
-    def _interacting(self):
-        import time
-        return (time.monotonic() - _last_interaction) < self._interaction_quiet
+    return PreviewPoller(layer, lambda: _last_interaction)

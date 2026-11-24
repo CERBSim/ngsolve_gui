@@ -1,4 +1,4 @@
-"""Presets: the parts of a mesh and a function view from the Draw arguments.
+"""Presets: the parts of a mesh, function and geometry view from the Draw arguments.
 ``configure_*`` applies the arguments that win over the saved state."""
 
 import ngsolve as ngs
@@ -15,8 +15,10 @@ from ..core.modules.field import Field
 from ..core.modules.regions import Regions
 from ..core.modules.subdivision import Subdivision, by_curve_order
 from .field import FieldSource
+from .geometry import GeometryContext, GeometryLayer, Meshing, Selection
 from .layers import Contact, Facet, FieldLinesLayer
 from .mesh import Curvature, mesh_context
+from .preview import MeshingPreview
 
 FUNCTION_SUBDIVISION_MAX = 40
 
@@ -72,6 +74,10 @@ def function_view(cf, region_or_mesh, undo=None, **draw):
         parts.append(Edges(None if isinstance(edges, bool) else edges))
     parts.append(Numbers(mesh.dim))
     return parts
+
+
+def geometry_view(geo, **draw):
+    return [GeometryContext(geo), Selection(), Meshing(), MeshingPreview(), GeometryLayer()]
 
 
 def configure_function(view, draw):
