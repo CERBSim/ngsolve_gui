@@ -101,3 +101,40 @@ def test_function_retarget_changes_bindings_without_remount():
     assert view.draws == draws + 1 and view._index in fe.mounted
     assert "x" in modes() and "d" not in modes()
     assert view.part("surface").renderer is not surface
+
+
+def _changed(value):
+    if isinstance(value, bool):
+        return not value
+    if isinstance(value, int):
+        return value + 1
+    if isinstance(value, float):
+        return value * 2 + 0.5
+    return value
+
+
+@standalone_app_test
+def test_state_round_trip_per_preset():
+    from ngsolve import CF, Mesh, unit_cube, x, y, z
+
+    from ngsolve_gui.app_data import AppData
+    from ngsolve_gui.function import FunctionComponent
+    from ngsolve_gui.mesh import MeshComponent
+
+    mesh = Mesh(unit_cube.GenerateMesh(maxh=0.5))
+    for cls, data in ((MeshComponent, {"obj": mesh}),
+                      (FunctionComponent, {"obj": CF((x, y, z)), "mesh": mesh})):
+        app_data = AppData()
+        tab = app_data.add_tab("t", cls, data, app_data)
+        mount(tab)
+        state = tab.view.state()
+        tab.view.load_state({k: _changed(v) for k, v in state.items()})
+        saved = tab.saved_state()
+        changed = {k for k in state if saved[k] != state[k]}
+        assert len(changed) > len(state) // 2, cls
+
+        app_data = AppData()
+        app_data._settings = saved
+        restored = app_data.add_tab("t", cls, data, app_data)
+        mount(restored)
+        assert restored.saved_state() == saved, cls

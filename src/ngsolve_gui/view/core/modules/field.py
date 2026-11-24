@@ -1,13 +1,14 @@
 """Field: the FunctionData a view shows and the component shown."""
 
-from ngapp.components import Observable
+from ngapp.components import Observable, batch
 
 from ..part import Part, has_role
 
 
 class Field(Part):
     """``data`` is set by a source (``set_data``); layers drawing the field
-    build from it. ``component`` -1 is the norm."""
+    build from it. ``vectors`` is the field as 3D vectors if it is a vector
+    field of the mesh dimension, else None. ``component`` -1 is the norm."""
 
     key = "field"
     requires = ("mesh",)
@@ -15,14 +16,17 @@ class Field(Part):
     def __init__(self):
         super().__init__()
         self.data = Observable(None, "field_data")
+        self.vectors = Observable(None, "field_vectors")
         self.component = Observable(-1, "field_component")
 
     def attach(self, view):
         super().attach(view)
         self.effect(self._push_component)
 
-    def set_data(self, data):
-        self.data.value = data
+    def set_data(self, data, vectors=None):
+        with batch():
+            self.vectors.value = vectors
+            self.data.value = data
 
     @property
     def dim(self):

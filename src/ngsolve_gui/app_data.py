@@ -29,7 +29,6 @@ class AppData:
         self._building = None   # record of a drawn tab under construction
         self._timer = None
         self._timer_lock = threading.Lock()
-        self._gpu_cache = {}
         self._clipping = Clipping()
         self._cameras = {}
 
@@ -200,19 +199,6 @@ class AppData:
             ref = group          # not weak-referenceable: hold it instead
         self._cameras[key] = [ref, camera]
         return camera, True
-
-    def get_mesh_gpu_data(self, mesh):
-        key = repr(mesh)
-        if key not in self._gpu_cache:
-            self._gpu_cache[key] = MeshData(mesh)
-        return self._gpu_cache[key]
-
-    def get_function_gpu_data(self, cf, mesh, **kwargs):
-        key = hash((repr(cf), repr(mesh), tuple(sorted(kwargs.items()))))
-        if key not in self._gpu_cache:
-            mdata = self.get_mesh_gpu_data(mesh)
-            self._gpu_cache[key] = FunctionData(mdata, cf, **kwargs)
-        return self._gpu_cache[key]
 
     def set_needs_redraw(self):
         for comp in list(self._components.values()):

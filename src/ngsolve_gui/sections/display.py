@@ -125,15 +125,16 @@ class FunctionDisplaySection(Section):
         )]
 
         chips_adv = []
-        if comp._facet_supported:
-            chips_adv.append(Chip("ElementBND", "mdi-vector-polyline", comp.facet_visible))
-        if comp.contact is not None:
-            chips_adv.append(Chip("Contact Pairs", "mdi-vector-intersection", comp.contact_enabled))
+        facet, contact = part("facet"), part("contact")
+        if facet.applies():
+            chips_adv.append(Chip("ElementBND", "mdi-vector-polyline", facet.visible))
+        if contact is not None:
+            chips_adv.append(Chip("Contact Pairs", "mdi-vector-intersection", contact.visible))
         if chips_adv:
             more_items.append(chip_row(*chips_adv))
-        if comp._facet_supported:
+        if facet.applies():
             thickness = QSlider(
-                ui_model_value=comp.facet_thickness,
+                ui_model_value=facet.thickness,
                 ui_min=0.001, ui_max=0.05, ui_step=0.001, ui_dense=True, ui_label=True,
             )
             more_items.append(field("ElementBND thickness", thickness))

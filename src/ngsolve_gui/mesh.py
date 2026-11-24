@@ -3,12 +3,8 @@ from ngapp.components import *
 import ngsolve as ngs
 
 from .tab import ViewTab
-from .view.core.layers.mesh import Elements2d, Elements3d, Identifications, Segments, Wireframe
-from .view.core.layers.numbers import Numbers
-from .view.core.modules.element_filter import ElementFilter
-from .view.core.modules.regions import Regions
-from .view.core.modules.subdivision import Subdivision, by_curve_order
-from .view.ngsolve.mesh import Curvature, element_quality, mesh_context
+from .view.ngsolve.mesh import element_quality
+from .view.ngsolve.presets import mesh_view
 
 
 class MeshComponent(ViewTab):
@@ -21,16 +17,7 @@ class MeshComponent(ViewTab):
         self._pick_mesh = self.mesh
 
     def view_parts(self):
-        data = self.data
-        return [
-            mesh_context(self.region_or_mesh),
-            Curvature(self.mesh),
-            Subdivision(data.get("subdivision"), auto=by_curve_order),
-            ElementFilter(data.get("el2d_bitarray"), data.get("el3d_bitarray")),
-            Regions(undo=self.undo_stack.push),
-            Wireframe(), Elements2d(), Segments(), Identifications(), Elements3d(),
-            Numbers(self.mesh.dim),
-        ]
+        return mesh_view(self.region_or_mesh, undo=self.undo_stack.push, **self.data)
 
     @property
     def regions(self):

@@ -70,6 +70,12 @@ class FieldSource(Part):
         data = FunctionData(self.context.base_data, cf, order=self.order, component_labels=labels)
         if deformation is None and cf.dim == 1 and self.mesh.dim < 3:
             deformation = True
+        self.vector_cf = None
+        vectors = None
+        if cf.dim == self.mesh.dim and cf.dim > 1:
+            self.vector_cf = cf if cf.dim == 3 else ngs.CF((cf[0], cf[1], 0))
+            vectors = data if cf.dim == 3 else FunctionData(
+                self.context.base_data, self.vector_cf, order=self.order)
         deform = resolve_deformation(deformation, cf, self.mesh.dim)
         self.deformation_cf = deform
         deform_data = None
@@ -80,6 +86,6 @@ class FieldSource(Part):
             part = self.view.part("deformation")
             if part is not None:
                 part.set_data(deform_data)
-            self.view.part("field").set_data(data)
+            self.view.part("field").set_data(data, vectors)
             if self.view.draws:
                 self.context.changed()
