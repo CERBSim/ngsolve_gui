@@ -15,7 +15,7 @@ from webgpu.webgpu_api import Color
 from ... import cerbsim_style as cb
 from .defaults import Defaults
 from .keymap import merge
-from .part import Layer
+from .part import Layer, has_role
 
 _dirty = set()
 _dirty_lock = threading.Lock()
@@ -71,8 +71,6 @@ class Viewport(Div):
         self.wgpu.ui_class = "fit"
         self.camera = camera or Camera()
         self._clipping = Observable(clipping or Clipping(), "clipping")
-        # alpha buffer of the region visibility, set by a Regions module
-        self.region_visibility = None
         self.defaults = defaults or Defaults()
         # a bar along the top edge is open (tooltips of the dock move below it)
         self.top_bar_open = Observable(False, "top_bar_open")
@@ -96,6 +94,14 @@ class Viewport(Div):
     @property
     def scene(self):
         return self.wgpu.scene
+
+    @property
+    def renderers(self):
+        """The renderers drawn last."""
+        return list(self._drawn or ())
+
+    def with_role(self, role):
+        return [r for r in self._drawn or () if has_role(r, role)]
 
     @property
     def clipping(self):
@@ -180,10 +186,8 @@ class Viewport(Div):
         self.draws += 1
         for layer in self._layers.value:
             layer.bind_all(layer.renderers.value)
-        if self.region_visibility is not None:
-            for r in objects:
-                if hasattr(r, "region_visibility"):
-                    r.region_visibility = self.region_visibility
+        for part in list(self._parts.values()):
+            part.prepare(objects)
         scene = self.wgpu.draw(objects, camera=self.camera)
         for part in list(self._parts.values()):
             part.wire(scene)

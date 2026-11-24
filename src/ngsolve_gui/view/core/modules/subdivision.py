@@ -1,6 +1,5 @@
 """Subdivision of the curved mesh elements."""
 
-from ngapp.components import untracked
 
 from ..part import Part
 
@@ -21,8 +20,10 @@ class Subdivision(Part):
     requires = ("mesh",)
     MAX = 5
 
-    def __init__(self, default=None, auto=None):
+    def __init__(self, default=None, auto=None, max=None):
         super().__init__()
+        if max is not None:
+            self.MAX = max
         self._default = default
         self._auto = auto
         self.value = self.observable("subdivision", -1, converter=int)

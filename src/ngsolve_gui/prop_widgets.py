@@ -139,12 +139,12 @@ class ColorbarLegend(Div):
     CMAPS = ["rainbow", "turbo", "viridis", "plasma", "cet_l20",
              "matlab:jet", "matplotlib:coolwarm"]
 
-    def __init__(self, comp):
-        mn, mx = comp.colormap_min, comp.colormap_max
-        auto = comp.colormap_autoscale
+    def __init__(self, colormap, field_part, title):
+        mn, mx = colormap.min, colormap.max
+        auto = colormap.autoscale
 
-        title = [Div(computed(lambda: comp.title), ui_class=cb.legend_quantity)]
-        selector = self._component_selector(comp)
+        title = [Div(computed(title), ui_class=cb.legend_quantity)]
+        selector = self._component_selector(field_part)
         if selector is not None:
             title.append(selector)
 
@@ -167,7 +167,7 @@ class ColorbarLegend(Div):
 
         self._pop_open = Observable(False, "legend_pop")
         bar = Div(QTooltip("Colormap options"), ui_class=cb.legend_bar, ui_style=computed(
-            lambda: "background: " + cb.colormap_gradient_vertical(comp.colormap_name.value) + ";"))
+            lambda: "background: " + cb.colormap_gradient_vertical(colormap.name.value) + ";"))
         bar.on("click", lambda e=None: self._pop_open.toggle())
         ticks = Div(self.maxval, tick(0.75), tick(0.5), tick(0.25), self.minval,
                     ui_class=cb.legend_ticks)
@@ -177,7 +177,7 @@ class ColorbarLegend(Div):
             "Auto", ui_class=on_cls(cb.ps_auto, cb.ps_auto_on, auto))
         auto_pill.on("click", lambda e=None: auto.toggle())
 
-        pop = self._build_pop(comp)
+        pop = self._build_pop(colormap)
         pop.ui_hidden = computed(lambda: not self._pop_open.value)
 
         super().__init__(
@@ -188,12 +188,12 @@ class ColorbarLegend(Div):
             ui_class=cb.vp_legend,
         )
 
-    def _build_pop(self, comp):
+    def _build_pop(self, colormap):
         rows = [Div(Div("Colormap options", ui_class=cb.ps_lab),
                     _close_x(lambda: setattr(self._pop_open, "value", False)),
                     ui_class="row items-center justify-between")]
 
-        name = comp.colormap_name
+        name = colormap.name
         opt_rows = []
         for n in self.CMAPS:
             row = Div(
@@ -206,23 +206,24 @@ class ColorbarLegend(Div):
             opt_rows.append(row)
         rows.append(field("Colormap", Div(*opt_rows)))
 
-        ncolors = QInput(ui_type="number", ui_model_value=comp.ncolors_colormap,
+        ncolors = QInput(ui_type="number", ui_model_value=colormap.ncolors,
                          ui_dense=True, ui_filled=True, ui_class=cb.input_tiny)
-        rows.append(Div(Chip("Discrete", "mdi-grid", comp.colormap_discrete, small=True),
+        rows.append(Div(Chip("Discrete", "mdi-grid", colormap.discrete, small=True),
                         field("N colors", ncolors),
                         ui_class="row items-end " + str(cb.gap_sm)))
         return Div(*rows, ui_class=cb.legend_pop)
 
-    def _component_selector(self, comp):
+    def _component_selector(self, field_part):
         """|u| / component picker beside the legend title. Fields with up to 3
         components get a segmented control, wider ones a |u| pill and a
         dropdown (keeps the legend narrow)."""
-        dim = getattr(comp.cf, "dim", 1)
+        dim = field_part.dim
         if dim <= 1:
             return None
-        names = comp.component_labels
+        names = field_part.labels
         shown = Observable("norm", "legend_component")
-        shown.on_change(lambda v, _o: comp.set_component(-1 if v == "norm" else int(v)))
+        shown.on_change(lambda v, _o: setattr(
+            field_part.component, "value", -1 if v == "norm" else int(v)))
         if dim <= 3:
             opts = [("norm", "|u|")] + [(str(i), names[i]) for i in range(dim)]
             return Div(Segmented(opts, shown), ui_class=cb.legend_comp)

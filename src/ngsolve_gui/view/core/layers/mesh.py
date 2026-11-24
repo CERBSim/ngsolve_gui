@@ -21,9 +21,10 @@ class MeshLayer(Layer):
     show_key = None          # key in the "Show" mode
     label = ""
 
-    def __init__(self):
+    def __init__(self, visible=None):
         super().__init__()
-        self.visible = self.observable(self.visible_key, self.visible_default)
+        self.visible = self.observable(
+            self.visible_key, self.visible_default if visible is None else visible)
 
     def attach(self, view):
         super().attach(view)
@@ -41,11 +42,6 @@ class MeshLayer(Layer):
             r.active = self.visible.value
             self.view.render()
         self.effect(push)
-
-    @property
-    def renderer(self):
-        renderers = self.renderers.value
-        return renderers[0] if renderers else None
 
     def bindings(self):
         if self.show_key is None:
@@ -189,3 +185,26 @@ class Elements3d(MeshLayer):
             self.view.render()
         self.effect(push_shrink)
         self.effect(push_subdivision)
+
+
+class Edges(Layer):
+    """The 1D elements as lines of a given thickness (geometry edges)."""
+
+    key = "edges"
+    order = 25
+    requires = ("mesh",)
+
+    def __init__(self, thickness=None):
+        super().__init__()
+        self.thickness = thickness
+
+    def attach(self, view):
+        super().attach(view)
+        self.context = view.part("mesh")
+
+    def build(self):
+        self.context.revision.value
+        r = MeshSegments(self.context.data.value, clipping=self.view.clipping)
+        if self.thickness is not None:
+            r.thickness = float(self.thickness)
+        return [r]

@@ -10,14 +10,9 @@ class EntityNumbersSection(Section):
 
     def __init__(self, comp):
         numbers = comp.view.part("numbers")
-        if numbers is not None:
-            entities, visible, one_based = numbers.entities, numbers.visible, numbers.one_based
-        else:
-            entities = comp.entity_number_entities
-            visible = {e: getattr(comp, f"{e}_numbers_visible") for e in entities}
-            one_based = comp.numbers_one_based
+        visible = numbers.visible
         chips = []
-        for entity in entities:
+        for entity in numbers.entities:
             label = entity.replace("_", " ").title()
             label = label.replace("Surface Elements", "Surf. El.") \
                          .replace("Volume Elements", "Vol. El.") \
@@ -30,7 +25,7 @@ class EntityNumbersSection(Section):
 
         super().__init__(
             chip_row(*chips),
-            Toggle("1-based indexing", one_based),
+            Toggle("1-based indexing", numbers.one_based),
             icon="mdi-numeric",
             title="Numbers",
             info="Overlay entity index labels directly in the scene.",

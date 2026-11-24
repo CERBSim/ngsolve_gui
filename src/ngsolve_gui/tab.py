@@ -110,6 +110,7 @@ class ViewTab(PropertyPanelMixin, Div):
             if self._supports_probe():
                 view.add(Probe(self._probe_value, self._plot_probe))
             view.add(Fullscreen(), Bookmarks())
+        self.configure()
         super().__init__(view, ui_class="relative-position fit")
 
         self.draw()
@@ -136,6 +137,9 @@ class ViewTab(PropertyPanelMixin, Div):
     def view_parts(self):
         """Parts added to the view before the generic ones."""
         return []
+
+    def configure(self):
+        """Apply options that win over the saved state (after it is loaded)."""
 
     def draw(self):
         self.view.draw()
@@ -373,53 +377,25 @@ class ViewTab(PropertyPanelMixin, Div):
     # -- probe ---------------------------------------------------------------
 
     def _probe_mesh_point(self, Q):
-        """Map a picked world point back to the *undeformed* mesh point.
+        """A picked world point mapped back to the undeformed mesh."""
+        mesh = self.view.part("mesh")
+        if mesh is None:
+            import numpy as np
 
-        With deformation on, picking returns the deformed surface position; the
-        coefficient function lives on the undeformed mesh. Recover the original
-        point P with Q = P + scale·deform(P) via fixed-point iteration.
-        """
-        import numpy as np
-        Q = np.array([float(Q[0]), float(Q[1]), float(Q[2])], dtype=float)
-        deform = getattr(self, "deformation", None)
-        enabled = getattr(self, "deformation_enabled", None)
-        if deform is None or enabled is None or not enabled.value:
-            return Q
-        try:
-            scale = float(self.deformation_scale.value) * float(self.deformation_scale2.value)
-        except Exception:
-            return Q
-        if scale == 0.0:
-            return Q
-        P = Q.copy()
-        for _ in range(12):
-            try:
-                mip = self.mesh(*[float(P[i]) for i in range(self.mesh.dim)])
-                d = np.asarray(deform(mip), dtype=float).ravel()
-            except Exception:
-                return Q
-            dv = np.zeros(3)
-            dv[:min(3, d.size)] = d[:3]
-            newP = Q - scale * dv
-            if np.linalg.norm(newP - P) < 1e-10:
-                P = newP
-                break
-            P = newP
-        return P
+            return np.array([float(Q[0]), float(Q[1]), float(Q[2])])
+        return mesh.base_data.undeformed(Q)
 
     def _probe_value(self, pt):
         """The field at a picked world point (norm for vectors), mapped back
         through any active deformation. None if outside the mesh."""
-        try:
-            import numpy as np
-            P = self._probe_mesh_point(pt)
-            mip = self.mesh(*[float(P[i]) for i in range(self.mesh.dim)])
-            v = self.cf(mip)
-            if isinstance(v, (tuple, list, np.ndarray)):
-                return float(np.linalg.norm(np.real(np.asarray(v, dtype=complex))))
-            return float(np.real(v))
-        except Exception:
+        import numpy as np
+
+        field = self.view.part("field")
+        v = field.evaluate(self._probe_mesh_point(pt)) if field is not None else None
+        if v is None:
             return None
+        v = np.real(np.asarray(v, dtype=complex)).ravel()
+        return float(v[0]) if v.size == 1 else float(np.linalg.norm(v))
 
     def _plot_probe(self, xs, ys):
         try:

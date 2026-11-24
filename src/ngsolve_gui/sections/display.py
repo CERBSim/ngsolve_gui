@@ -101,23 +101,26 @@ class FunctionDisplaySection(Section):
     def __init__(self, comp):
         self.comp = comp
 
-        primary = [Chip("Wireframe", "mdi-grid", comp.wireframe_visible)]
-        if comp.draw_surf:
-            primary.append(Chip("Surface", "mdi-square-outline", comp.elements2d_visible))
-        if comp.mesh.dim == 3 and comp.clippingcf is not None:
-            primary.append(Chip("Clipping Fn", "mdi-box-cutter", comp.clipping_visible))
+        part = comp.view.part
+        surface, clipfield = part("surface"), part("clipfield")
+        primary = [Chip("Wireframe", "mdi-grid", part("wireframe").visible)]
+        if surface.applies():
+            primary.append(Chip("Surface", "mdi-square-outline", surface.visible))
+        if clipfield.applies():
+            primary.append(Chip("Clipping Fn", "mdi-box-cutter", clipfield.visible))
         # LIC is toggled inside the "Vectors & Flow" section (grouped with
         # streamlines), not as a top-level Display chip.
         primary.append(Chip("Highlight", "mdi-cursor-default-click", comp.picking_enabled))
 
         items = [chip_row(*primary)]
 
+        subdivision = part("subdivision")
         subdiv = QInput(
-            ui_type="number", ui_model_value=comp.subdivision,
+            ui_type="number", ui_model_value=subdivision.value,
             ui_dense=True, ui_class=input_tiny,
         )
         more_items = [field(
-            f"Subdivision (-1 auto, 0 linear, max {comp.SUBDIVISION_MAX})",
+            f"Subdivision (-1 auto, 0 linear, max {subdivision.MAX})",
             subdiv,
         )]
 

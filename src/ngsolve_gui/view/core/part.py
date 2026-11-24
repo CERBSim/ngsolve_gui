@@ -7,6 +7,18 @@ from typing import Callable
 from ngapp.components import Observable, computed, effect
 
 
+def mark(renderer, *roles):
+    """Roles of a renderer that modules look for: ``"component"`` (follows
+    the shown field component), ``"complex"``, ``"deformation"`` (reads the
+    deformation scale itself)."""
+    renderer._view_roles = getattr(renderer, "_view_roles", frozenset()) | set(roles)
+    return renderer
+
+
+def has_role(renderer, role):
+    return role in getattr(renderer, "_view_roles", ())
+
+
 @dataclass
 class Binding:
     key: str
@@ -65,6 +77,10 @@ class Part:
     def applies(self):
         return True
 
+    def suppresses(self, key):
+        """True while this part hides the layer ``key`` (tracked)."""
+        return False
+
     # contributions ----------------------------------------------------
 
     def tools(self):
@@ -75,6 +91,9 @@ class Part:
 
     def overlays(self):
         return []
+
+    def prepare(self, renderers):
+        """Set up the renderers of a draw before the scene is created."""
 
     def wire(self, scene):
         """Register input handlers on a new scene (each draw creates one)."""
@@ -103,6 +122,12 @@ class Layer(Part):
             self._bound.append(effect(fn))
         else:
             super().effect(fn)
+
+    @property
+    def renderer(self):
+        """The first renderer (layers of one renderer), None if none."""
+        renderers = self.renderers.value
+        return renderers[0] if renderers else None
 
     def pickables(self):
         """[(renderer, kind)] of the renderers that can be picked."""

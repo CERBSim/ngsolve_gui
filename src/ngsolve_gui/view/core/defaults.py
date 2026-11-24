@@ -11,6 +11,9 @@ class Defaults:
         self._refs = {}
         self._values = dict(values or {})
 
+    def get(self, key, default=None):
+        return self.ref(key, default).value
+
     def ref(self, key, default=None, converter=None):
         obs = self._refs.get(key)
         if obs is None:

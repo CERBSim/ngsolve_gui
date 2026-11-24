@@ -16,7 +16,8 @@ class ComplexSection(Section):
 
     def __init__(self, comp):
         self.comp = comp
-        if not comp.cf.is_complex:
+        complex_ = comp.view.part("complex")
+        if complex_ is None or not complex_.applies():
             raise ValueError("Not a complex function")
 
         self.mode_select = QSelect(
@@ -26,21 +27,21 @@ class ComplexSection(Section):
                 {"label": "Absolute", "value": "abs"},
                 {"label": "Phase (Arg)", "value": "arg"},
             ],
-            ui_model_value=comp.complex_mode,
+            ui_model_value=complex_.mode,
             ui_emit_value=True,
             ui_map_options=True,
             ui_dense=True,
         )
 
         self.speed = QSlider(
-            ui_model_value=comp.complex_speed,
+            ui_model_value=complex_.speed,
             ui_min=0.1, ui_max=5.0, ui_step=0.1,
             ui_dense=True, ui_label=True,
         )
 
         super().__init__(
             field("Display mode", self.mode_select),
-            Toggle("Animate phase", comp.complex_animate),
+            Toggle("Animate phase", complex_.animate),
             field("Animation speed", self.speed),
             icon="mdi-sine-wave",
             title="Complex",

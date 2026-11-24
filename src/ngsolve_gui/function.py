@@ -2,10 +2,20 @@ from ngapp.components import *
 from ngsolve_webgpu import *
 from .settings import usersettings as _usersettings
 from .tab import ViewTab
-from ngsolve_webgpu.region_visibility import RegionState
-from . import cerbsim_style as cb
+from .view.core import Layer
+from .view.core.layers.field import ClipField, Surface
+from .view.core.layers.mesh import Edges, Wireframe
+from .view.core.layers.numbers import Numbers
+from .view.core.modules.colormap import Colormap as ColormapPart
+from .view.core.modules.complex import Complex
+from .view.core.modules.deformation import Deformation
+from .view.core.modules.field import Field
+from .view.core.modules.regions import Regions
+from .view.core.modules.subdivision import Subdivision
+from .view.core.part import mark
+from .view.ngsolve.field import FieldSource
+from .view.ngsolve.mesh import mesh_context
 import ngsolve as ngs
-import math
 
 
 def _fmt_value(v):
@@ -31,38 +41,50 @@ def _positive_int(value):
     return value
 
 
+class _Legacy(Layer):
+    """Renderers of the function tab not split into layers yet (facet,
+    vectors, LIC, field lines, contact); built by the tab."""
+
+    key = "legacy"
+    order = 50
+    requires = ("mesh", "field", "colormap")
+
+    def __init__(self, tab):
+        super().__init__()
+        self.tab = tab
+        # the facet renderer is expensive: built once it is first shown
+        self.facet_wanted = Observable(tab.facet_visible.value, "facet_wanted")
+
+    def attach(self, view):
+        super().attach(view)
+        self.context = view.part("mesh")
+        self.field = view.part("field")
+
+    def build(self):
+        self.context.revision.value
+        data, clipping = self.field.data.value, self.view.clipping
+        facet = self.facet_wanted.value
+        if data is None:
+            return []
+        with untracked():
+            return self.tab._build_legacy(data, clipping, facet)
+
+    def pickables(self):
+        lic = self.tab.lic
+        return [(lic, "surface")] if lic is not None and self.tab._lic_is_surface else []
+
+    def suppresses(self, key):
+        # a surface LIC replaces the flat surface field
+        return key == "surface" and self.tab._lic_is_surface and self.tab.lic_visible.value
+
+
 class FunctionComponent(ViewTab):
-    def _resolve_deformation(self, deform):
-        """Normalize the ``deformation`` Draw argument into a 3d displacement CF."""
-        if deform is None or deform is False:
-            return None
-        if deform is True:
-            deform = self.cf
-        if not isinstance(deform, ngs.CoefficientFunction):
-            print(f"Warning: ignoring deformation of type {type(deform).__name__}")
-            return None
-        # FacetFESpace functions can't be evaluated inside elements
-        if isinstance(deform, ngs.GridFunction) and isinstance(
-            deform.space, ngs.FacetFESpace
-        ):
-            return None
-        if deform.dim == 3:
-            return deform
-        if deform.dim == 2:
-            return ngs.CF((deform[0], deform[1], 0))
-        if deform.dim == 1 and self.mesh.dim < 3:
-            return ngs.CF((0, 0, deform))
-        print(
-            f"Warning: cannot use a {deform.dim}-dimensional field as deformation "
-            f"on a {self.mesh.dim}d mesh"
-        )
-        return None
+    SUBDIVISION_MAX = 40
 
     def __init__(self, name, data, app_data):
         self.app_data = app_data
         cf = data["obj"]
         self.name = name
-        self.mdata = None
         self.cf = cf
         self.region_or_mesh = data["mesh"]
         self.draw_vol = data.get("draw_vol", True)
@@ -73,67 +95,24 @@ class FunctionComponent(ViewTab):
             if isinstance(self.region_or_mesh, ngs.Region)
             else self.region_or_mesh
         )
-        from ngsolve_webgpu.cf import default_component_labels
-
-        labels = data.get("component_labels", None)
-        if labels is not None and len(labels) != cf.dim:
-            print(f"Warning: ignoring {len(labels)} component labels for a {cf.dim}-component field")
-            labels = None
-        self._given_labels = None if labels is None else [str(l) for l in labels]
-        self.component_labels = self._given_labels or default_component_labels(cf.dim)
-        self.order = data.get("order", None)
-        if self.order is None:
-            self.order = 2
-            if isinstance(cf, ngs.GridFunction):
-                self.order = min(2, cf.space.globalorder)
-        self.deformation = self._resolve_deformation(data.get("deformation", None))
-        self.deformation_order = data.get("deformation_order", self.order)
         self.facet = data.get("facet", None)
         self.contact = data.get("contact", None)
         self.contact_pairs = None
         self.facet_renderer = None
+        self.surface_vectors = None
+        self.clipping_vectors = None
+        self.fieldlines = None
+        self.lic = None
+        self._lic_is_surface = False
         self._facet_supported = bool(self.draw_vol) and self.mesh.dim in (2, 3)
 
-        # -- Resolve initial values from data args + saved settings ---------
         saved = app_data.saved_settings()
-        minval = data.get("min", 0.0)
-        maxval = data.get("max", 1.0)
-        autoscale = not ("min" in data or "max" in data) and not data.get(
-            "autoscale", False
-        )
-        discrete_colormap = data.get(
-            "discrete_colormap", _usersettings.get("default_discrete_colormap", False)
-        )
-        if any([v in data for v in ("min", "max", "discrete_colormap", "autoscale")]):
-            saved["colormap"] = (autoscale, discrete_colormap, minval, maxval)
-
-        if (
-            self.deformation is None
-            and not "deformation" in data
-            and self.cf.dim == 1
-            and self.mesh.dim < 3
-        ):
-            self.deformation = self._resolve_deformation(True)
-
         cv = data.get("clipping_vectors", False)
         sv = data.get("surface_vectors", False)
         fl = data.get("field_lines", False)
         lic = data.get("lic", False)
 
-        # -- Observable properties ------------------------------------------
         s = saved
-        self.wireframe_visible = Observable(
-            s.get("wireframe_visible", data.get("wireframe", True)), "wireframe_visible"
-        )
-        self.elements2d_visible = Observable(
-            s.get("elements2d_visible", True), "elements2d_visible"
-        )
-        self.subdivision = Observable(
-            s.get("subdivision",
-                  data.get("subdivision",
-                           int(_usersettings.get("default_subdivision", -1)))),
-            "subdivision", converter=int,
-        )
         self.facet_visible = Observable(
             bool(self.facet) if self.facet is not None else s.get("facet_visible", False),
             "facet_visible",
@@ -149,10 +128,6 @@ class FunctionComponent(ViewTab):
         )
         self.field_lines_visible = Observable(
             bool(fl) if fl else s.get("field_lines", False), "field_lines"
-        )
-        self.clipping_visible = Observable(
-            data.get("clipping_function", s.get("clipping_visible", True)),
-            "clipping_visible",
         )
         # -- LIC (line integral convolution) on the clipping plane --
         self.lic_visible = Observable(
@@ -186,29 +161,6 @@ class FunctionComponent(ViewTab):
         self.vector_scale_by_value = Observable(
             s.get("vector_scale_by_value", False), "vector_scale_by_value",
         )
-        self.deformation_enabled = Observable(
-            ("deformation" in data and self.deformation is not None)
-            or s.get("deformation_enabled", False),
-            "deformation_enabled",
-        )
-        self.deformation_scale = Observable(
-            s.get("deformation_scale", 1.0), "deformation_scale", converter=float
-        )
-        self.deformation_scale2 = Observable(
-            s.get("deformation_scale2", 1.0), "deformation_scale2", converter=float
-        )
-        cm = s.get("colormap", (autoscale, discrete_colormap, minval, maxval))
-        self.colormap_autoscale = Observable(cm[0], "colormap_autoscale")
-        self.colormap_discrete = Observable(cm[1], "colormap_discrete")
-        self.colormap_min = Observable(cm[2], "colormap_min", converter=float, formatter=lambda v: f"{v:.4g}")
-        self.colormap_max = Observable(cm[3], "colormap_max", converter=float, formatter=lambda v: f"{v:.4g}")
-        self.colormap_name = Observable(
-            s.get("colormap_name", cb.default_colormap(_usersettings)), "colormap_name"
-        )
-        self.ncolors_colormap = Observable(
-            s.get("ncolors_colormap", int(_usersettings.get("default_ncolors", 8))),
-            "ncolors_colormap", converter=int,
-        )
         self.contact_enabled = Observable(
             s.get("contact_enabled", True), "contact_enabled"
         )
@@ -225,48 +177,16 @@ class FunctionComponent(ViewTab):
             s.get("fieldlines_direction", 0), "fieldlines_direction", converter=int
         )
 
-        self.hidden_regions = Observable(
-            list(s.get("hidden_regions", [])), "hidden_regions"
-        )
-        self.boundary_overrides = Observable(
-            dict(s.get("boundary_overrides", {})), "boundary_overrides"
-        )
-
-        if self.cf.is_complex:
-            self.complex_mode = Observable(
-                s.get("complex_mode", "real"), "complex_mode"
-            )
-            self.complex_animate = Observable(False, "complex_animate")
-            self.complex_speed = Observable(
-                s.get("complex_speed", 1.0), "complex_speed", converter=float
-            )
-
-        # -- Entity number observables --
-        self.entity_number_entities = ["vertices", "edges", "facets", "segments", "surface_elements"]
-        if self.mesh.dim == 3:
-            self.entity_number_entities.append("volume_elements")
-        self.entity_number_entities += ["surface_indices", "segment_indices"]
-        if self.mesh.dim == 3:
-            self.entity_number_entities.append("volume_indices")
-        for entity in self.entity_number_entities:
-            key = f"{entity}_numbers_visible"
-            setattr(self, key, Observable(saved.get(key, False), key))
-        self.numbers_one_based = Observable(
-            saved.get("numbers_one_based", False), "numbers_one_based"
-        )
-
         super().__init__(name, data, app_data)
+        self._pick_mesh = self.mesh
+        self.view.part("regions").listeners.append(
+            lambda: self.lic is not None and self.lic._refresh())
 
-        # -- Wire GPU side-effects -----------------------------------------
-        self.wireframe_visible.on_change(self._apply_wireframe)
-        self.elements2d_visible.on_change(self._apply_elements2d)
-        self.subdivision.on_change(self._apply_subdivision)
         self.facet_visible.on_change(self._apply_facet)
         self.facet_thickness.on_change(self._apply_facet_thickness)
         self.clipping_vectors_visible.on_change(self._apply_clipping_vectors)
         self.surface_vectors_visible.on_change(self._apply_surface_vectors)
         self.field_lines_visible.on_change(self._apply_fieldlines)
-        self.clipping_visible.on_change(self._apply_clipping_function)
         self.lic_visible.on_change(self._apply_lic)
         self.lic_kernel_length.on_change(self._apply_lic_kernel_length)
         self.lic_oriented.on_change(self._apply_lic_oriented)
@@ -276,86 +196,142 @@ class FunctionComponent(ViewTab):
         self.vector_grid_size.on_change(self._apply_vector_grid_size)
         self.vector_scale.on_change(self._apply_vector_scale)
         self.vector_scale_by_value.on_change(self._apply_vector_scale_by_value)
-        self.deformation_enabled.on_change(self._apply_deformation_toggle)
-        self.deformation_scale.on_change(self._apply_deformation_scale)
-        self.deformation_scale2.on_change(self._apply_deformation_scale)
         self.contact_enabled.on_change(self._apply_contact)
-        self.colormap_autoscale.on_change(self._apply_autoscale)
-        self.colormap_discrete.on_change(self._apply_discrete)
-        self.colormap_name.on_change(self._apply_colormap_name)
-        self.colormap_min.on_change(self._apply_colormap_range)
-        self.colormap_max.on_change(self._apply_colormap_range)
-        self.ncolors_colormap.on_change(self._apply_ncolors)
-        if self.cf.is_complex:
-            self.complex_mode.on_change(self._apply_complex_mode)
-            self.complex_animate.on_change(self._apply_complex_animate)
-            self.complex_speed.on_change(self._apply_complex_speed)
-        for entity in self.entity_number_entities:
-            obs = getattr(self, f"{entity}_numbers_visible")
-            obs.on_change(lambda val, _old, e=entity: self._apply_entity_numbers(e, val))
-        self.numbers_one_based.on_change(self._apply_numbers_one_based)
-        self.hidden_regions.on_change(self._apply_region_change)
-        self.boundary_overrides.on_change(self._apply_region_change)
 
-    # -- GPU side-effect handlers -------------------------------------------
+    def view_parts(self):
+        data = self.data
+        parts = [
+            mesh_context(self.region_or_mesh),
+            Subdivision(data.get("subdivision"), max=self.SUBDIVISION_MAX),
+            Regions(undo=self.undo_stack.push),
+            Field(), Deformation(), Complex(), ColormapPart(),
+            FieldSource(self.cf, self.region_or_mesh, order=data.get("order"),
+                        labels=data.get("component_labels"),
+                        deformation=data.get("deformation"),
+                        deformation_order=data.get("deformation_order")),
+            Wireframe(visible=data.get("wireframe")),
+            Surface(enabled=bool(self.draw_surf)),
+            ClipField(enabled=bool(self.draw_vol)),
+        ]
+        if self.draw_edges:
+            parts.append(Edges(None if isinstance(self.draw_edges, bool) else self.draw_edges))
+        parts += [_Legacy(self), Numbers(self.mesh.dim)]
+        return parts
 
-    def _apply_wireframe(self, val, _old):
-        self.wireframe.active = val
-        self.wgpu.scene.render()
+    def configure(self):
+        """Draw arguments win over the saved state."""
+        data, part = self.data, self.view.part
+        if "deformation" in data and part("deformation").applies():
+            part("deformation").enabled.value = True
+        if "clipping_function" in data:
+            part("clipfield").visible.value = bool(data["clipping_function"])
+        colormap = part("colormap")
+        if any(k in data for k in ("min", "max", "autoscale")):
+            colormap.autoscale.value = data.get(
+                "autoscale", not ("min" in data or "max" in data))
+        if "min" in data:
+            colormap.min.value = data["min"]
+        if "max" in data:
+            colormap.max.value = data["max"]
+        if "discrete_colormap" in data:
+            colormap.discrete.value = bool(data["discrete_colormap"])
 
-    def _apply_elements2d(self, val, _old):
-        self._sync_surface_elements()
-        self.wgpu.scene.render()
+    # -- parts --------------------------------------------------------------
 
-    SUBDIVISION_MAX = 40
+    @property
+    def deformation(self):
+        return self.view.part("source").deformation_cf
 
-    def _subdivision_override(self):
-        """UI subdivision → MeshData.subdivision. -1 = auto (None, derived from
-        the mesh curve/deformation order); 0 = linear (subdivision 1); N =
-        subdivision N+1. Raising it tessellates each element into more render
-        triangles, so a high-order function renders smoothly instead of
-        piecewise-flat."""
-        v = int(self.subdivision.value)
-        v = max(-1, min(self.SUBDIVISION_MAX, v))
-        return None if v < 0 else v + 1
+    @property
+    def colormap(self):
+        return self.view.part("colormap").colormap
 
-    def _apply_subdivision(self, val, _old):
-        clamped = max(-1, min(self.SUBDIVISION_MAX, int(val)))
-        if clamped != int(val):
-            self.subdivision.value = clamped
-            return
-        func_data = getattr(self, "func_data", None)
-        if func_data is None:
-            return
+    @property
+    def func_data(self):
+        return self.view.part("field").data.value
+
+    @property
+    def mdata(self):
+        return self.view.part("mesh").base_data
+
+    def set_cf(self, cf, **options):
+        """Show another function in this view."""
+        self.cf = cf
+        self.view.part("source").set_cf(cf, **options)
+
+    # -- renderers not split into layers yet --------------------------------
+
+    def _build_legacy(self, func_data, clipping, facet):
+        """Facet, vector, LIC, field line and contact renderers."""
         mdata = func_data.mesh_data
-        mdata.subdivision = self._subdivision_override()
-        mdata.set_needs_update()
-        for obj in self.scene.render_objects:
-            obj.set_needs_update()
-        self.wgpu.scene.render()
+        colormap = self.colormap
+        cf, order, region = self.cf, self.view.part("source").order, self.region_or_mesh
+        self.surface_vectors = self.clipping_vectors = self.lic = self.fieldlines = None
+        self.facet_renderer = None
+        # a SurfaceLIC (2D) replaces the flat surface field, a ClippingLIC (3D)
+        # overlays the cutting plane
+        self._lic_is_surface = False
+        lic_args = dict(
+            clipping=clipping, colormap=colormap,
+            kernel_length=self.lic_kernel_length.value, oriented=self.lic_oriented.value,
+            thickness=self.lic_thickness.value, contrast=self.lic_contrast.value,
+            supersample=2 if self.lic_supersample.value else 1)
+        vector_args = dict(
+            clipping=clipping, colormap=colormap, grid_size=self.vector_grid_size.value,
+            scale_by_value=self.vector_scale_by_value.value)
+        if cf.dim == self.mesh.dim:
+            vec3 = cf if cf.dim == 3 else ngs.CF((cf[0], cf[1], 0))
+            vec_data = self.app_data.get_function_gpu_data(vec3, region, order=order)
+            self.surface_vectors = mark(SurfaceVectors(vec_data, **vector_args), "complex")
+            self.surface_vectors.user_scale = self.vector_scale.value
+            self.surface_vectors.active = self.surface_vectors_visible.value
+            if self.mesh.dim == 2:
+                self.lic = SurfaceLIC(vec_data, **lic_args)
+                self._lic_is_surface = True
+            from ngsolve_webgpu.cf import FieldLines
 
-    def _sync_surface_elements(self):
-        """Show the flat surface field unless a surface LIC is replacing it.
+            self.fieldlines = FieldLines(
+                vec3, region,
+                num_lines=self.fieldlines_num_lines.value,
+                length=self.fieldlines_length.value,
+                thickness=self.fieldlines_thickness.value,
+                direction=self.fieldlines_direction.value,
+                colormap=colormap, clipping=clipping,
+            )
+            self.fieldlines.active = self.field_lines_visible.value
+        if self.mesh.dim == 3 and self.draw_vol and cf.dim == 3:
+            self.clipping_vectors = mark(ClippingVectors(func_data, **vector_args), "complex")
+            self.clipping_vectors.user_scale = self.vector_scale.value
+            self.clipping_vectors.active = self.clipping_vectors_visible.value
+            self.lic = ClippingLIC(func_data, **lic_args)
+        if self.lic is not None:
+            mark(self.lic, "component", "complex")
+            self.lic.active = self.lic_visible.value
+        if facet:
+            self._create_facet_renderer(mdata, clipping, colormap)
+        if self.contact is not None:
+            from ngsolve_webgpu.contact import ContactPairs
+            from webgpu.renderer import MultipleRenderer
 
-        A SurfaceLIC is itself the surface renderer, so drawing elements2d on top
-        of it z-fights; hide elements2d while the surface LIC is visible (the 3D
-        ClippingLIC, by contrast, is independent of elements2d)."""
-        if self.elements2d is None:
-            return
-        hide_for_lic = (
-            self._lic_is_surface
-            and self.lic is not None
-            and self.lic_visible.value
-        )
-        self.elements2d.active = self.elements2d_visible.value and not hide_for_lic
+            if isinstance(self.contact, list):
+                from .region_colors import get_random_colors
 
-    def _create_facet_renderer(self):
-        """Build the element-boundary renderer on demand.
+                colors = get_random_colors(len(self.contact))
+                self.contact_pairs = MultipleRenderer(
+                    [ContactPairs(region, c, color=col) for c, col in zip(self.contact, colors)])
+            else:
+                self.contact_pairs = ContactPairs(region, self.contact)
+            self.contact_pairs.active = self.contact_enabled.value
+        return [r for r in (self.lic, self.facet_renderer, self.contact_pairs,
+                            self.clipping_vectors, self.surface_vectors, self.fieldlines)
+                if r is not None]
 
-        Extracting the CF on all element boundaries is expensive, so this only
-        runs once the user actually switches element-boundary rendering on."""
-        if self.facet_renderer is not None or not self._facet_supported:
-            return self.facet_renderer
+    def _create_facet_renderer(self, mdata, clipping, colormap):
+        """Extracting the CF on all element boundaries is expensive, so this
+        only runs once element boundaries are switched on."""
+        if not self._facet_supported:
+            return None
+        order = self.view.part("source").order
         facet_cf = (
             self.facet if isinstance(self.facet, ngs.CoefficientFunction) else self.cf
         )
@@ -364,19 +340,17 @@ class FunctionComponent(ViewTab):
                 # deformation is baked in unconditionally; the deformation_scale
                 # uniform (0 when disabled) switches it on and off
                 facet_data = FacetFunctionData(
-                    self._mesh_data, facet_cf, order=self.order,
-                    deformation_cf=self.deformation,
+                    mdata, facet_cf, order=order, deformation_cf=self.deformation,
                 )
                 self.facet_renderer = FacetCFRenderer(
-                    facet_data, colormap=self.colormap, clipping=self.clipping,
+                    facet_data, colormap=colormap, clipping=clipping,
                     thickness=self.facet_thickness.value,
                 )
             else:
                 from ngsolve_webgpu.facet_cf import FacetCFRenderer3D
 
                 self.facet_renderer = FacetCFRenderer3D(
-                    self._mesh_data, facet_cf, order=self.order,
-                    colormap=self.colormap, clipping=self.clipping,
+                    mdata, facet_cf, order=order, colormap=colormap, clipping=clipping,
                 )
         except Exception as e:
             import traceback
@@ -384,19 +358,16 @@ class FunctionComponent(ViewTab):
             traceback.print_exc()
             self.facet_renderer = None
             return None
-        self.facet_renderer.region_visibility = self.region_visibility
+        mark(self.facet_renderer, "deformation")
+        self.facet_renderer.active = self.facet_visible.value
         return self.facet_renderer
 
     def _apply_facet(self, visible, _old):
-        if getattr(self, "_mesh_data", None) is None:
-            return
-        if visible and self.facet_renderer is None:
-            if self._create_facet_renderer() is None:
-                return
-            self.scene.render_objects.append(self.facet_renderer)
+        if visible:
+            self.view.part("legacy").facet_wanted.value = True
         if self.facet_renderer is not None:
             self.facet_renderer.active = visible
-            self.wgpu.scene.render()
+            self.view.render()
 
     def _apply_facet_thickness(self, val, _old):
         if self.facet_renderer is not None:
@@ -419,15 +390,9 @@ class FunctionComponent(ViewTab):
             self.fieldlines.active = val
         self.wgpu.scene.render()
 
-    def _apply_clipping_function(self, val, _old):
-        if self.clippingcf is not None:
-            self.clippingcf.active = val
-        self.wgpu.scene.render()
-
     def _apply_lic(self, val, _old):
         if self.lic is not None:
             self.lic.active = val
-        self._sync_surface_elements()
         self.wgpu.scene.render()
 
     def _apply_lic_kernel_length(self, val, _old):
@@ -477,41 +442,15 @@ class FunctionComponent(ViewTab):
             r.set_needs_update()
         self.wgpu.scene.render()
 
-    def _apply_deformation_toggle(self, val, _old):
-        if self.mdata is None:
-            return
-        if val:
-            self.mdata.deformation_scale = (
-                self.deformation_scale.value * self.deformation_scale2.value
-            )
-        else:
-            self.mdata.deformation_scale = 0.0
-        self._refresh_deformed_renderers()
-
-    def _apply_deformation_scale(self, _val, _old):
-        if self.mdata is None:
-            return
-        if self.deformation_enabled.value:
-            self.mdata.deformation_scale = (
-                self.deformation_scale.value * self.deformation_scale2.value
-            )
-            self._refresh_deformed_renderers()
-
-    def _refresh_deformed_renderers(self):
-        """Renderers that read the deformation scale on their own (i.e. not via
-        the shared mesh uniform) need an explicit update."""
-        if self.clippingcf is not None:
-            self.clippingcf.set_needs_update()
-        if self.facet_renderer is not None:
-            self.facet_renderer.set_needs_update()
-        self.wgpu.scene.render()
-
     def _pick_info(self, result):
         """Element / region / position / value — value uses the *undeformed*
         point so it stays correct when deformation is on."""
         header, rows, _ = super()._pick_info(result)
-        val = self._eval_cf(self._probe_mesh_point(result.world_pos))
+        val = self.view.part("field").evaluate(self._probe_mesh_point(result.world_pos))
         if val is not None:
+            import numpy as np
+
+            val = np.real(val)
             if val.size == 1:
                 rows.append(("value", _fmt_value(val)))
             else:
@@ -519,225 +458,16 @@ class FunctionComponent(ViewTab):
             return ("Picked value", rows, True)
         return ("Picked value", rows, False)
 
-    def _eval_cf(self, P):
-        try:
-            import numpy as np
-            mip = self.mesh(*[float(P[i]) for i in range(self.mesh.dim)])
-            return np.real(np.asarray(self.cf(mip)))
-        except Exception:
-            return None
-
     def _apply_contact(self, val, _old):
         if self.contact_pairs is not None:
             self.contact_pairs.active = val
         self.wgpu.scene.render()
 
-    def _apply_entity_numbers(self, entity, val):
-        self._entity_number_renderers[entity].active = val
-        self.wgpu.scene.render()
-
-    def _apply_numbers_one_based(self, val, _old):
-        for r in self._entity_number_renderers.values():
-            r.zero_based = not val
-            r.set_needs_update()
-        self.wgpu.scene.render()
-
-    def _sync_region_state(self):
-        self.region_state.hidden = set(self.hidden_regions.value)
-        self.region_state.overrides = dict(self.boundary_overrides.value)
-
-    def _apply_region_change(self, _val=None, _old=None):
-        """Push the current region state to the GPU alpha buffer and re-render.
-
-        The alpha buffer write is a compute-pass trigger for the clip fill and
-        the arrow generators; the LIC field texture is dispatched Python-side,
-        so poke it explicitly. With autoscale on, the colormap range follows
-        the visible regions only.
-        """
-        self._sync_region_state()
-        st = self.region_state
-        self.region_visibility.set_alphas(
-            vol=st.vol_alphas(), surf=st.surf_alphas()
-        )
-        if self.lic is not None:
-            self.lic._refresh()
-        self._update_autoscale_range()
-        self.wgpu.scene.render()
-
-    def _push_region_undo(self, label):
-        prev_hidden = list(self.hidden_regions.value)
-        prev_overrides = dict(self.boundary_overrides.value)
-
-        def restore():
-            with observable_batch():
-                self.hidden_regions.value = prev_hidden
-                self.boundary_overrides.value = prev_overrides
-
-        self.undo_stack.push(label, restore)
-
-    def set_region_visible(self, name, visible):
-        hidden = set(self.hidden_regions.value)
-        if (name not in hidden) == bool(visible):
-            return
-        self._push_region_undo(("show " if visible else "hide ") + name)
-        if visible:
-            hidden.discard(name)
-        else:
-            hidden.add(name)
-        self.hidden_regions.value = sorted(hidden)
-
-    def set_boundary_override(self, name, state):
-        """state: True = force show, False = force hide, None = auto."""
-        overrides = dict(self.boundary_overrides.value)
-        if overrides.get(name) == state:
-            return
-        word = "auto" if state is None else ("show" if state else "hide")
-        self._push_region_undo(f"boundary {name}: {word}")
-        if state is None:
-            overrides.pop(name, None)
-        else:
-            overrides[name] = state
-        self.boundary_overrides.value = overrides
-
-    def show_all_regions(self):
-        if not self.hidden_regions.value and not self.boundary_overrides.value:
-            return
-        self._push_region_undo("show all")
-        with observable_batch():
-            self.hidden_regions.value = []
-            self.boundary_overrides.value = {}
-
-    def _region_under_cursor(self):
-        """Volume region name under the cursor (via the last hover pick)."""
-        result = self._last_pick
-        if result is None:
-            return None
-        st = self.region_state
-        if self.mesh.dim == 2 or result.kind == "clipping":
-            return st.material_name(result.region_index)
-        if result.kind == "surface":
-            # Boundary pick: resolve through the fd adjacency, preferring a
-            # currently visible adjacent volume region (hiding the visible one
-            # is what "hide what I see" means on an interface).
-            if result.region_index >= len(st.fd_doms):
-                return None
-            doms = st.fd_doms[result.region_index]
-            names = [st.material_name(d - 1) for d in doms if d >= 1]
-            names = [n for n in names if n is not None]
-            visible = [n for n in names if n not in st.hidden]
-            return (visible or names or [None])[0]
-        return None
-
-    def hide_region_under_cursor(self):
-        name = self._region_under_cursor()
-        if name is not None:
-            self.set_region_visible(name, False)
-
-    def isolate_region_under_cursor(self):
-        name = self._region_under_cursor()
-        if name is None:
-            return
-        others = sorted(m for m in self.region_state.unique_materials if m != name)
-        if others == sorted(self.hidden_regions.value):
-            return
-        self._push_region_undo(f"isolate {name}")
-        self.hidden_regions.value = others
-
-    # -- Autoscale over visible regions --------------------------------------
-
-    def _update_autoscale_range(self):
-        """Scope the function range to the visible regions.
-
-        The renderers re-widen the colormap from ``func_data.minval/maxval``
-        every frame when autoscale is on, so overriding those (and restoring
-        the cached full range when nothing is hidden) is all it takes.
-        """
-        func_data = getattr(self, "func_data", None)
-        if func_data is None:
-            return
-        if self._full_range is None and func_data._timestamp >= 0:
-            self._full_range = (list(func_data.minval), list(func_data.maxval))
-        if not self.region_state.any_hidden():
-            if self._full_range is not None:
-                func_data.minval, func_data.maxval = (
-                    list(self._full_range[0]), list(self._full_range[1]))
-        else:
-            mm = self._visible_minmax()
-            if mm is not None:
-                func_data.minval, func_data.maxval = mm
-        if self.colormap_autoscale.value:
-            self.wgpu.scene.redraw(blocking=True)
-            self.colormap_min.value = float(self.colormap.minval)
-            self.colormap_max.value = float(self.colormap.maxval)
-
-    def _visible_minmax(self):
-        """(minval, maxval) lists ([norm, comp0, ...]) over the visible
-        regions, evaluated like ``evaluate_cf`` does; None if not computable."""
-        import numpy as np
-        import re
-
-        st = self.region_state
-        visible_mats = [m for m in st.unique_materials if m not in st.hidden]
-        if not visible_mats:
-            return None
-        regions = []
-        mat_pattern = "|".join(re.escape(m) for m in visible_mats)
-        if self.mesh.dim == 3:
-            if self.clippingcf is not None and self.clipping_visible.value:
-                regions.append((self.mesh.Materials(mat_pattern),
-                                (ngs.ET.TET, ngs.ET.HEX, ngs.ET.PRISM, ngs.ET.PYRAMID)))
-            if self.elements2d is not None and self.elements2d_visible.value:
-                bnd_names = st.visible_boundary_names()
-                if bnd_names:
-                    bnd_pattern = "|".join(re.escape(b) for b in bnd_names)
-                    regions.append((self.mesh.Boundaries(bnd_pattern),
-                                    (ngs.ET.TRIG, ngs.ET.QUAD)))
-            if not regions:
-                regions.append((self.mesh.Materials(mat_pattern),
-                                (ngs.ET.TET, ngs.ET.HEX, ngs.ET.PRISM, ngs.ET.PYRAMID)))
-        else:
-            regions.append((self.mesh.Materials(mat_pattern),
-                            (ngs.ET.TRIG, ngs.ET.QUAD)))
-
-        order = max(2 * self.order, 2)
-        minval = None
-        maxval = None
-        for region, eltypes in regions:
-            try:
-                rules = {et: ngs.IntegrationRule(et, order) for et in eltypes}
-                with ngs.TaskManager():
-                    pts = self.mesh.MapToAllElements(rules, region)
-                    vals = self.cf(pts)
-            except Exception:
-                continue
-            vals = np.asarray(vals).reshape(len(pts), -1)
-            comps = np.abs(vals) if self.cf.is_complex else np.real(vals)
-            if comps.size == 0:
-                continue
-            norm = np.linalg.norm(comps, axis=1)
-            mn = [float(np.min(norm))] + [float(v) for v in np.min(comps, axis=0)]
-            mx = [float(np.max(norm))] + [float(v) for v in np.max(comps, axis=0)]
-            if minval is None:
-                minval, maxval = mn, mx
-            else:
-                minval = [min(a, b) for a, b in zip(minval, mn)]
-                maxval = [max(a, b) for a, b in zip(maxval, mx)]
-        if minval is None:
-            return None
-        return minval, maxval
-
     # -- Keybinding support -------------------------------------------------
 
-    _COLORMAPS = ["rainbow", "turbo", "viridis", "plasma", "cet_l20", "matlab:jet", "matplotlib:coolwarm"]
-
     def tab_keybindings(self):
-        kb = {"flat": [], "modes": []}
-        kb["flat"].append(("w", self.toggle_wireframe, "Toggle wireframe", "General"))
-
-        # s → Show
-        show = [("w", self.toggle_wireframe, "Toggle wireframe")]
-        if self.draw_surf:
-            show.append(("s", self.toggle_surface_solution, "Toggle surface"))
+        """Bindings of the renderers not split into layers yet."""
+        show = []
         if self._facet_supported:
             show.append(("e", self.toggle_facet, "Toggle element boundaries"))
         if self.surface_vectors is not None:
@@ -751,96 +481,10 @@ class FunctionComponent(ViewTab):
         if self.surface_vectors is not None or self.clipping_vectors is not None:
             show.append(("+", self.increase_vector_density, "Increase vector density"))
             show.append(("-", self.decrease_vector_density, "Decrease vector density"))
-        kb["modes"].append(("s", "Show", show))
-
-        # c → Clipping (3D only)
-        if self.mesh.dim == 3:
-            clip = []
-            if self.clippingcf is not None:
-                clip.append(
-                    ("f", self.toggle_clipping_function, "Toggle clipping function")
-                )
-            if self.lic is not None:
-                clip.append(("l", self.toggle_lic, "Toggle LIC"))
-            kb["modes"].append(("c", "Clipping", clip))
-
-        # d → Deformation
-        if self.deformation is not None or (self.cf.dim == 1 and self.mesh.dim < 3):
-            kb["modes"].append(
-                (
-                    "d",
-                    "Deformation",
-                    [
-                        ("d", self.toggle_deformation, "Toggle deformation"),
-                        ("+", self.increase_deformation, "Increase scale"),
-                        ("-", self.decrease_deformation, "Decrease scale"),
-                        ("0", self.reset_deformation, "Reset scale to 1.0"),
-                    ],
-                )
-            )
-
-        # m → Colormap
-        kb["modes"].append(
-            (
-                "m",
-                "Colormap",
-                [
-                    ("a", self.toggle_autoscale, "Toggle autoscale"),
-                    ("d", self.toggle_discrete, "Toggle discrete"),
-                    ("n", self.cycle_colormap_next, "Next colormap"),
-                    ("p", self.cycle_colormap_prev, "Previous colormap"),
-                ],
-            )
-        )
-
-        if self.cf.is_complex:
-            kb["modes"].append(
-                (
-                    "x",
-                    "Complex",
-                    [
-                        ("r", lambda: setattr(self.complex_mode, 'value', 'real'), "Real part"),
-                        ("i", lambda: setattr(self.complex_mode, 'value', 'imag'), "Imag part"),
-                        ("a", lambda: setattr(self.complex_mode, 'value', 'abs'), "Absolute value"),
-                        ("p", lambda: setattr(self.complex_mode, 'value', 'arg'), "Phase/Arg"),
-                        ("space", lambda: self.complex_animate.toggle(), "Toggle animation"),
-                    ],
-                )
-            )
-
-        # g → Regions (hide/isolate what's under the cursor; u undoes)
-        if len(self.region_state.unique_materials) > 1:
-            kb["modes"].append(
-                (
-                    "g",
-                    "Regions",
-                    [
-                        ("h", self.hide_region_under_cursor, "Hide region under cursor"),
-                        ("i", self.isolate_region_under_cursor, "Isolate region under cursor"),
-                        ("a", self.show_all_regions, "Show all regions"),
-                    ],
-                )
-            )
-
-        num_bindings = [
-            ("v", lambda: self._toggle_numbers("vertices"), "Vertex numbers"),
-            ("e", lambda: self._toggle_numbers("edges"), "Edge numbers"),
-            ("f", lambda: self._toggle_numbers("facets"), "Facet numbers"),
-            ("s", lambda: self._toggle_numbers("surface_elements"), "Surface el. numbers"),
-        ]
-        if self.mesh.dim == 3:
-            num_bindings.append(("3", lambda: self._toggle_numbers("volume_elements"), "Volume el. numbers"))
-        kb["modes"].append(("n", "Numbers", num_bindings))
-
-        return kb
-
-    # -- Toggle methods (now one-liners) ------------------------------------
-
-    def toggle_wireframe(self):
-        self.wireframe_visible.toggle()
-
-    def toggle_surface_solution(self):
-        self.elements2d_visible.toggle()
+        modes = [("s", "Show", show)]
+        if self.mesh.dim == 3 and self.lic is not None:
+            modes.append(("c", "Clipping", [("l", self.toggle_lic, "Toggle LIC")]))
+        return {"flat": [], "modes": modes}
 
     def toggle_facet(self):
         self.facet_visible.toggle()
@@ -854,14 +498,8 @@ class FunctionComponent(ViewTab):
     def toggle_fieldlines(self):
         self.field_lines_visible.toggle()
 
-    def toggle_clipping_function(self):
-        self.clipping_visible.toggle()
-
     def toggle_lic(self):
         self.lic_visible.toggle()
-
-    def _toggle_numbers(self, entity):
-        getattr(self, f"{entity}_numbers_visible").toggle()
 
     def _change_vector_density(self, factor):
         grid_size = max(10, int(self.vector_grid_size.value * factor))
@@ -873,124 +511,9 @@ class FunctionComponent(ViewTab):
     def decrease_vector_density(self):
         self._change_vector_density(0.8)
 
-    def toggle_deformation(self):
-        self.deformation_enabled.toggle()
-
-    def increase_deformation(self):
-        self._step_deformation(1.25)
-
-    def decrease_deformation(self):
-        self._step_deformation(0.8)
-
-    def _step_deformation(self, factor):
-        if self.mdata is None:
-            return
-        self.deformation_scale.value = self.deformation_scale.value * factor
-
-    def reset_deformation(self):
-        if self.mdata is None:
-            return
-        with observable_batch():
-            self.deformation_scale.value = 1.0
-            self.deformation_scale2.value = 1.0
-
-    def _apply_autoscale(self, val, _old):
-        self.colormap.autoscale = val
-        if val:
-            self.wgpu.scene.redraw(blocking=True)
-            self.colormap_min.value = float(self.colormap.minval)
-            self.colormap_max.value = float(self.colormap.maxval)
-        else:
-            self._apply_colormap_range()
-
-    def _apply_colormap_range(self, *_):
-        # while autoscaling, the colormap writes the range, not the other way
-        if self.colormap_autoscale.value:
-            return
-        self.colormap.set_min(self.colormap_min.value)
-        self.colormap.set_max(self.colormap_max.value)
-        self.wgpu.scene.render()
-
-    def _apply_ncolors(self, val, _old):
-        self.colormap.set_n_colors(max(1, min(32, val)))
-        self.wgpu.scene.render()
-
-    def _apply_discrete(self, val, _old):
-        self.colormap.set_discrete(val)
-        self.wgpu.scene.render()
-
-    def _apply_colormap_name(self, val, _old):
-        self.colormap.set_colormap(val)
-        self.wgpu.scene.render()
-
-    @property
-    def _complex_renderers(self):
-        return [r for r in [self.elements2d, self.clippingcf, self.clipping_vectors, self.surface_vectors, self.lic] if r is not None]
-
     @property
     def _vector_renderers(self):
         return [r for r in [self.clipping_vectors, self.surface_vectors] if r is not None]
-
-    def _apply_complex_mode(self, val, _old):
-        for r in self._complex_renderers:
-            r.set_complex_mode(val)
-        self.wgpu.scene.render()
-
-    def _apply_complex_animate(self, val, _old):
-        if val:
-            if self.colormap_autoscale.value:
-                self.colormap_autoscale.value = False
-            for r in self._complex_renderers:
-                r.animate_phase(self.scene, speed=self.complex_speed.value)
-        else:
-            for r in self._complex_renderers:
-                r.stop_animation()
-                r.set_complex_mode(self.complex_mode.value)
-            self.wgpu.scene.render()
-
-    def _apply_complex_speed(self, val, _old):
-        for r in self._complex_renderers:
-            if r._phase_animation is not None:
-                r._phase_animation.speed = val
-
-    def toggle_autoscale(self):
-        self.colormap_autoscale.toggle()
-
-    def set_component(self, component):
-        """Color by the norm (-1) or by one component of a vector field."""
-        self._component = component
-        for r in self._component_renderers():
-            r.set_component(component)
-        # the autoscaled range reaches the legend through _sync_autoscale_range
-        self.wgpu.scene.render()
-
-    def _component_renderers(self):
-        return [r for r in (self.elements2d, self.clippingcf, self.lic) if r is not None]
-
-    def _sync_autoscale_range(self):
-        """Colormap callback: the renderers widen the autoscaled range while
-        rendering (also later than a blocking redraw returns in the browser)."""
-        if self.colormap_autoscale.value:
-            self.colormap_min.value = float(self.colormap.minval)
-            self.colormap_max.value = float(self.colormap.maxval)
-
-    def toggle_discrete(self):
-        self.colormap_discrete.toggle()
-
-    def _cycle_colormap(self, direction):
-        current = self.colormap_name.value
-        try:
-            idx = self._COLORMAPS.index(current)
-        except ValueError:
-            idx = 0
-        idx = (idx + direction) % len(self._COLORMAPS)
-        self.colormap_name.value = self._COLORMAPS[idx]
-
-    def cycle_colormap_next(self):
-        self._cycle_colormap(1)
-
-    def cycle_colormap_prev(self):
-        self._cycle_colormap(-1)
 
     def property_subtitle(self):
         kind = "Vector" if self.cf.dim > 1 else "Scalar"
@@ -1004,248 +527,14 @@ class FunctionComponent(ViewTab):
         # The colorbar (colormap, range, autoscale, component) lives entirely in
         # the in-viewport legend now — not in the side panel.
         from .prop_widgets import ColorbarLegend
-        return ColorbarLegend(self)
+        part = self.view.part
+        return ColorbarLegend(part("colormap"), part("field"), lambda: self.title)
 
     def _open_as_mesh(self):
         from .mesh import MeshComponent
         self.app_data.add_tab(
             "Mesh_" + self.name, MeshComponent, {"obj": self.mesh}, self.app_data
         )
-
-    def draw(self):
-        # Per-tab region visibility: shared alpha buffer (like clipping /
-        # colormap), fed from the saved hidden-regions state.
-        if not hasattr(self, "region_state"):
-            self.region_state = RegionState(self.mesh)
-            self.region_visibility = RegionVisibility()
-            self._full_range = None
-        self._sync_region_state()
-        self.region_visibility.set_alphas(
-            vol=self.region_state.vol_alphas(),
-            surf=self.region_state.surf_alphas(),
-        )
-
-        func_data = self.app_data.get_function_gpu_data(
-            self.cf, self.region_or_mesh, order=self.order
-        )
-        if self._given_labels is not None:
-            func_data.component_labels = self._given_labels
-        mdata = func_data.mesh_data
-
-        if self.deformation is not None:
-            deform_data = self.app_data.get_function_gpu_data(
-                self.deformation, self.region_or_mesh,
-                order=self.deformation_order
-            )
-            if getattr(self, "mdata", None) is None:
-                self.mdata = MeshData(self.region_or_mesh)
-            mdata = self.mdata
-            mdata.deformation_data = deform_data
-            mdata.deformation_scale = (
-                self.deformation_scale.value * self.deformation_scale2.value
-            )
-            if not self.deformation_enabled.value:
-                mdata.deformation_scale = 0.0
-            func_data.mesh_data = mdata
-        subdiv = self._subdivision_override()
-        if subdiv is not None:
-            mdata.subdivision = subdiv
-        self.wireframe = MeshWireframe2d(mdata, clipping=self.clipping)
-        # geometry edges (1d mesh elements)
-        self.edges = None
-        if self.draw_edges:
-            self.edges = MeshSegments(mdata, clipping=self.clipping)
-            # edges=<float> sets the line thickness
-            if not isinstance(self.draw_edges, bool):
-                self.edges.thickness = float(self.draw_edges)
-        self.wireframe.active = self.wireframe_visible.value
-
-        autoscale = self.colormap_autoscale.value
-        discrete = self.colormap_discrete.value
-        minval = self.colormap_min.value
-        maxval = self.colormap_max.value
-        self.colormap = Colormap(minval=minval, maxval=maxval, colormap=self.colormap_name.value,
-                                 n_colors=max(1, min(32, self.ncolors_colormap.value)))
-        self.colormap.autoscale = autoscale
-        self.colormap.discrete = discrete
-        self.colormap._callbacks.append(self._sync_autoscale_range)
-        self.clipping_vectors = None
-        self.lic = None
-        # True when self.lic is a SurfaceLIC (2D) that REPLACES the flat surface
-        # field, vs a ClippingLIC (3D) that overlays the cutting plane.
-        self._lic_is_surface = False
-        if self.cf.dim == self.mesh.dim:
-            vec3 = self.cf
-            if self.cf.dim == 2:
-                vec3 = ngs.CF((self.cf[0], self.cf[1], 0))
-            vec_data = self.app_data.get_function_gpu_data(
-                vec3, self.region_or_mesh, order=self.order
-            )
-            self.surface_vectors = SurfaceVectors(
-                vec_data,
-                clipping=self.clipping,
-                colormap=self.colormap,
-                grid_size=self.vector_grid_size.value,
-                scale_by_value=self.vector_scale_by_value.value,
-            )
-            self.surface_vectors.user_scale = self.vector_scale.value
-            self.surface_vectors.active = self.surface_vectors_visible.value
-            # Surface LIC: paint the 2D vector field's flow as streamlines on the
-            # mesh itself (replaces the flat surface field, like the 3D LIC
-            # replaces the clip-plane field). Only for a 2D vector field on a 2D
-            # mesh; the 3D case below uses ClippingLIC on the cutting plane.
-            if self.mesh.dim == 2:
-                self.lic = SurfaceLIC(
-                    vec_data,
-                    clipping=self.clipping,
-                    colormap=self.colormap,
-                    kernel_length=self.lic_kernel_length.value,
-                    oriented=self.lic_oriented.value,
-                    thickness=self.lic_thickness.value,
-                    contrast=self.lic_contrast.value,
-                    supersample=2 if self.lic_supersample.value else 1,
-                )
-                self.lic.active = self.lic_visible.value
-                self._lic_is_surface = True
-        else:
-            self.surface_vectors = None
-        self.fieldlines = None
-        if self.cf.dim == self.mesh.dim:
-            from ngsolve_webgpu.cf import FieldLines
-
-            vec3 = self.cf if self.cf.dim == 3 else ngs.CF((self.cf[0], self.cf[1], 0))
-            self.fieldlines = FieldLines(
-                vec3,
-                self.region_or_mesh,
-                num_lines=self.fieldlines_num_lines.value,
-                length=self.fieldlines_length.value,
-                thickness=self.fieldlines_thickness.value,
-                direction=self.fieldlines_direction.value,
-                colormap=self.colormap,
-                clipping=self.clipping,
-            )
-            self.fieldlines.active = self.field_lines_visible.value
-        if self.mesh.dim == 3 and self.draw_vol:
-            self.clippingcf = ClippingIsolineRenderer(func_data, clipping=self.clipping,
-                                                     n_lines=0, show_field=True, colormap=self.colormap)
-            self.clippingcf.active = self.clipping_visible.value
-            if self.cf.dim == 3:
-                self.clipping_vectors = ClippingVectors(
-                    func_data,
-                    clipping=self.clipping,
-                    colormap=self.colormap,
-                    grid_size=self.vector_grid_size.value,
-                    scale_by_value=self.vector_scale_by_value.value,
-                )
-                self.clipping_vectors.user_scale = self.vector_scale.value
-                self.clipping_vectors.active = self.clipping_vectors_visible.value
-                self.lic = ClippingLIC(
-                    func_data,
-                    clipping=self.clipping,
-                    colormap=self.colormap,
-                    kernel_length=self.lic_kernel_length.value,
-                    oriented=self.lic_oriented.value,
-                    thickness=self.lic_thickness.value,
-                    contrast=self.lic_contrast.value,
-                    supersample=2 if self.lic_supersample.value else 1,
-                )
-                self.lic.active = self.lic_visible.value
-        else:
-            self.clippingcf = None
-        if self.draw_surf:
-            self.elements2d = IsolineRenderer(
-                func_data, n_lines=0, show_field=True,
-                clipping=self.clipping, colormap=self.colormap
-            )
-            self.elements2d.active = self.elements2d_visible.value
-            # Hide the flat field if a surface LIC is replacing it.
-            self._sync_surface_elements()
-        else:
-            self.elements2d = None
-
-        self.facet_renderer = None
-        self._mesh_data = mdata
-        if self.facet_visible.value and self._create_facet_renderer() is not None:
-            self.facet_renderer.active = True
-        if self.cf.is_complex:
-            for r in self._complex_renderers:
-                r._scene = self.scene
-                r.set_complex_mode(self.complex_mode.value)
-        component = getattr(self, "_component", -1)
-        if component != -1:
-            for r in self._component_renderers():
-                r.gpu_objects.settings.component = component
-        self.colorbar = Colorbar(self.colormap)
-        self.colorbar.width = 0.8
-        self.colorbar.position = (-0.5, 0.9)
-
-        if self.contact is not None:
-            from ngsolve_webgpu.contact import ContactPairs
-            from webgpu.renderer import MultipleRenderer
-
-            if isinstance(self.contact, list):
-                from .region_colors import get_random_colors
-
-                colors = get_random_colors(len(self.contact))
-                self.contact_pairs = MultipleRenderer(
-                    [
-                        ContactPairs(self.region_or_mesh, cb, color=c)
-                        for cb, c in zip(self.contact, colors)
-                    ]
-                )
-            else:
-                self.contact_pairs = ContactPairs(
-                    self.region_or_mesh,
-                    self.contact,
-                )
-            self.contact_pairs.active = self.contact_enabled.value
-
-        for r in [self.wireframe, self.elements2d, self.clippingcf,
-                  self.clipping_vectors, self.surface_vectors, self.lic]:
-            if r is not None:
-                r.region_visibility = self.region_visibility
-
-        render_objects = [
-            obj
-            for obj in [
-                self.clippingcf,
-                self.lic,
-                self.elements2d,
-                self.facet_renderer,
-                self.wireframe,
-                self.edges,
-                # colorbar is shown in the UI (ColorbarLegend), not in the scene
-                self.contact_pairs,
-                self.clipping_vectors,
-                self.surface_vectors,
-                self.fieldlines,
-            ]
-            if obj is not None
-        ]
-        self._entity_number_renderers = {}
-        for entity in self.entity_number_entities:
-            r = EntityNumbers(mdata, entity=entity, clipping=self.clipping, zero_based=not self.numbers_one_based.value)
-            r.active = getattr(self, f"{entity}_numbers_visible").value
-            self._entity_number_renderers[entity] = r
-        render_objects += list(self._entity_number_renderers.values())
-
-        pickable = [(r, k) for r, k in [
-            (self.elements2d, "surface"),
-            # The surface LIC replaces elements2d while visible, so keep picking
-            # working on it too (it's a CFRenderer with a select pipeline).
-            (self.lic if self._lic_is_surface else None, "surface"),
-            (self.clippingcf, "clipping"),
-        ] if r is not None]
-        self.show(render_objects, pickable, self.mesh)
-
-        def set_min_max():
-            self.colormap_min.value = float(self.colormap.minval)
-            self.colormap_max.value = float(self.colormap.maxval)
-
-        self.wgpu.on_mounted(set_min_max)
-
-        self.func_data = func_data
-
 
 # Register with the component registry
 from .registry import register_component

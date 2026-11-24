@@ -71,9 +71,33 @@ def test_mesh_view_rebuilds_once_and_keeps_regions():
     view.part("elements3d").visible.value = True
     assert view.draws == draws + 1
     drawn = [r for r in view.scene_objects.value if hasattr(r, "region_visibility")]
-    assert drawn and all(r.region_visibility is view.region_visibility for r in drawn)
+    assert drawn and all(r.region_visibility is view.part("regions").visibility for r in drawn)
 
     tab.set_quality_threshold(0.0)
     data = view.part("mesh").data.value
     assert data is not view.part("mesh").base_data
     assert view.part("elements3d").renderer.data is data
+
+
+@standalone_app_test
+def test_function_retarget_changes_bindings_without_remount():
+    from ngsolve import CF, Mesh, unit_square, x, y
+
+    from ngsolve_gui.app_data import AppData
+    from ngsolve_gui.function import FunctionComponent
+
+    mesh = Mesh(unit_square.GenerateMesh(maxh=0.3))
+    app_data = AppData()
+    tab = app_data.add_tab("f", FunctionComponent, {"obj": x, "mesh": mesh}, app_data)
+    fe = mount(tab)
+    view, surface = tab.view, tab.view.part("surface").renderer
+
+    def modes():
+        return {t for t, _, _ in tab.get_keybindings()["modes"]}
+
+    assert "d" in modes() and "x" not in modes()
+    draws = view.draws
+    tab.set_cf(CF((x, 1j * y)))
+    assert view.draws == draws + 1 and view._index in fe.mounted
+    assert "x" in modes() and "d" not in modes()
+    assert view.part("surface").renderer is not surface

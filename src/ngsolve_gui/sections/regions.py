@@ -22,8 +22,7 @@ class RegionsSection(Section):
 
     def __init__(self, comp):
         self.comp = comp
-        # the function tab keeps its own region state until it uses the module
-        self.regions = comp.view.part("regions") or comp
+        self.regions = comp.view.part("regions")
         st = self.regions.region_state
         mats = st.unique_materials
         bnds = st.unique_boundaries if comp.mesh.dim == 3 else []
@@ -49,12 +48,7 @@ class RegionsSection(Section):
 
     def _state(self):
         """The region state for the current observables (tracked)."""
-        regions = self.regions
-        if regions is not self.comp:
-            return regions.sync()
-        regions.hidden_regions.value, regions.boundary_overrides.value
-        regions._sync_region_state()
-        return regions.region_state
+        return self.regions.sync()
 
     def _rows(self, mats, bnds):
         rows = []

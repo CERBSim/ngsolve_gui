@@ -1,7 +1,7 @@
 """Region visibility: hidden volume regions and boundary overrides, drawn
-through one alpha buffer that the viewport hands to its renderers."""
+through one alpha buffer handed to every renderer that takes one."""
 
-from ngapp.components import Observable, batch
+from ngapp.components import batch
 from ngsolve_webgpu.region_visibility import RegionState, RegionVisibility
 
 from ..part import Binding, Part
@@ -26,7 +26,6 @@ class Regions(Part):
         super().attach(view)
         self.context = view.part("mesh")
         self.region_state = RegionState(self.context.base_data)
-        view.region_visibility = self.visibility
         self.effect(self._push)
 
     def sync(self):
@@ -42,6 +41,11 @@ class Regions(Part):
         for fn in self.listeners:
             fn()
         self.view.render()
+
+    def prepare(self, renderers):
+        for r in renderers:
+            if hasattr(r, "region_visibility"):
+                r.region_visibility = self.visibility
 
     def applies(self):
         return len(self.region_state.unique_materials) > 1
