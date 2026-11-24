@@ -3,7 +3,7 @@
 from ngapp.components import *
 
 from .. import cerbsim_style as cb
-from ..prop_widgets import on_cls
+from ..view.core.widgets import on_cls
 
 _CHIP = ("display: inline-block; padding: 0 6px; margin: 2px 4px 0 0; cursor: default;"
          " border-radius: var(--r-pill); font-size: 11px; border: 1px solid var(--border);")

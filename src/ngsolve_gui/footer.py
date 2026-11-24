@@ -210,7 +210,7 @@ class StatusFooter(Div):
     def _on_cancel(self):
         self._generation += 1
         try:
-            from .meshing_preview import set_terminate
+            from .view.ngsolve.preview import set_terminate
 
             set_terminate(True)
         except Exception:

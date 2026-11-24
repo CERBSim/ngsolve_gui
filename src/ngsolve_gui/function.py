@@ -27,7 +27,6 @@ class FunctionComponent(ViewTab):
         self.region_or_mesh = data["mesh"]
         self.mesh = mesh_of(self.region_or_mesh)
         super().__init__(name, data, app_data)
-        self._pick_mesh = self.mesh
 
     def view_parts(self):
         return function_view(self.cf, self.region_or_mesh, undo=self.undo_stack.push,
@@ -87,7 +86,7 @@ class FunctionComponent(ViewTab):
     def _build_viewport_legend(self):
         # The colorbar (colormap, range, autoscale, component) lives entirely in
         # the in-viewport legend now — not in the side panel.
-        from .prop_widgets import ColorbarLegend
+        from .view.core.widgets import ColorbarLegend
         part = self.view.part
         return ColorbarLegend(part("colormap"), part("field"), lambda: self.title)
 

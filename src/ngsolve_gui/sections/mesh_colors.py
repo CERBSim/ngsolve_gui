@@ -1,7 +1,7 @@
 import numpy as np
 from ngapp.components import *
-from ngsolve_gui.region_colors import RegionColors
-from ..prop_widgets import Section, Segmented, on_cls
+from ..view.core.widgets.region_colors import RegionColors
+from ..view.core.widgets import Section, Segmented, on_cls
 from ..cerbsim_style import (
     gap_sm, grow, mono, hint, muted, prop_switch, prop_switch_on, qhist_col,
 )

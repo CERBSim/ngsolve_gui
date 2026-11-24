@@ -4,7 +4,7 @@ regions), discrete steps; the ``m`` mode."""
 from ngapp.components import untracked
 from webgpu.colormap import Colormap as _Colormap
 
-from .... import cerbsim_style as cb
+import cerbsim_ngapp_style as cb
 from ..part import Binding, Part
 
 NAMES = ["rainbow", "turbo", "viridis", "plasma", "cet_l20", "matlab:jet", "matplotlib:coolwarm"]

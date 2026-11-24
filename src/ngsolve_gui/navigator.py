@@ -1,6 +1,6 @@
 from ngapp.components import *
 
-from .prop_widgets import on_cls
+from .view.core.widgets import on_cls
 
 from .cerbsim_style import (
     nav_panel,

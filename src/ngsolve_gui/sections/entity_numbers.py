@@ -2,7 +2,7 @@
 
 from ngapp.components import *
 
-from ..prop_widgets import Section, Chip, chip_row, Toggle
+from ..view.core.widgets import Section, Chip, chip_row, Toggle
 
 
 class EntityNumbersSection(Section):

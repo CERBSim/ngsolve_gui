@@ -10,7 +10,7 @@ convolution) sub-features. Only shown for vector CFs.
 from ngapp.components import *
 
 from .. import cerbsim_style as cb
-from ..prop_widgets import Section, Chip, Toggle, SubToggleBlock, chip_row, field
+from ..view.core.widgets import Section, Chip, Toggle, SubToggleBlock, chip_row, field
 from ..cerbsim_style import gap_xs, gap_sm, gap_md, grow
 
 _COL = "column " + str(gap_sm)

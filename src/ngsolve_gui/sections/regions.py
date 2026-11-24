@@ -10,7 +10,7 @@ drawn (whether by override or derivation).
 
 from ngapp.components import *
 
-from ..prop_widgets import Section, MoreDisclosure
+from ..view.core.widgets import Section, MoreDisclosure
 from ..cerbsim_style import field_label, region_item_row
 
 

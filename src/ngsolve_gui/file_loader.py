@@ -12,6 +12,8 @@ import ngsolve as ngs
 os.environ.setdefault("MPLBACKEND", "Agg")
 
 from .app_data import AppData
+from .registry import get_component_info
+from .view.core.backends import view_target
 from .workspace import identifier
 from .function import FunctionComponent
 from .geometry import GeometryComponent
@@ -327,24 +329,6 @@ def _run_script(
     return thread, done_event
 
 
-# Dispatch table mapping types to default name + component
-_DRAW_DISPATCH: dict[type, tuple[str, type]] = {
-    ngocc.OCCGeometry: ("Geometry", GeometryComponent),
-    ngs.Mesh: ("Mesh", MeshComponent),
-    ngs.Region: ("Mesh", MeshComponent),
-    ngs.CoefficientFunction: ("Function", FunctionComponent),
-}
-
-
-def _is_plot_candidate(obj: Any) -> bool:
-    if isinstance(obj, (list, tuple)):
-        return any(_is_plot_candidate(item) for item in obj)
-    if isinstance(obj, dict):
-        return any(key in obj for key in ("data", "layout", "frames"))
-    mod = type(obj).__module__
-    return mod.startswith("plotly.") or mod.startswith("matplotlib.")
-
-
 def DrawImpl(
     obj: Any,
     mesh: ngs.Mesh | ngs.Region | None = None,
@@ -352,12 +336,8 @@ def DrawImpl(
     **kwargs,
 ):
     """
-    Dispatch objects drawn by NGSolve into the GUI.
-
-    Supported targets:
-      - `TopoDS_Shape`/`OCCGeometry` → `GeometryComponent`
-      - `Mesh`/`Region` → `MeshComponent`
-      - `CoefficientFunction` (or `GridFunction`) → `FunctionComponent`
+    Open a tab for ``obj``; the view backends (``register_backend``) decide
+    the kind of tab: geometry, mesh, function, plot.
 
     Provide `mesh` for general coefficient functions; grid functions use their space
     mesh automatically. The function returns the created component instance.
@@ -365,31 +345,16 @@ def DrawImpl(
     if _workspace is not None:
         _workspace.refresh()
     data = dict(**kwargs)
-    if isinstance(obj, ngocc.TopoDS_Shape):
-        obj = ngocc.OCCGeometry(obj)
-    if isinstance(obj, ngs.GridFunction):
-        if mesh is None:
-            mesh = obj.space.mesh
+    if isinstance(obj, ngs.GridFunction) and mesh is None:
+        mesh = obj.space.mesh
     if mesh is not None:
         data["mesh"] = mesh
-
-    if _is_plot_candidate(obj):
-        from .plot import PlotComponent
-
-        data["obj"] = obj
-        return _appdata.add_tab(name or "Plot", PlotComponent, data, _appdata)
-
-    if type(obj) not in _DRAW_DISPATCH:
-        try:
-            # try to convert to CoefficientFunction
-            obj = ngs.CF(obj)
-            default_name, comp = _DRAW_DISPATCH[ngs.CF]
-        except:
-            raise TypeError(f"Unsupported object type for Draw: {type(obj)}")
-    else:
-        default_name, comp = _DRAW_DISPATCH[type(obj)]
-    data["obj"] = obj
-    return _appdata.add_tab(name or default_name, comp, data, _appdata)
+    found = view_target(obj)
+    info = get_component_info(found[0]) if found is not None else None
+    if info is None:
+        raise TypeError(f"Unsupported object type for Draw: {type(obj)}")
+    kind, data["obj"] = found
+    return _appdata.add_tab(name or kind.title(), info["cls"], data, _appdata)
 
 
 def RedrawImpl(*args, **kwargs):

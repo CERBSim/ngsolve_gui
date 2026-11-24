@@ -6,7 +6,7 @@ mesh generation and the action button to trigger it.
 
 from ngapp.components import *
 
-from ..prop_widgets import Section, field
+from ..view.core.widgets import Section, field
 from ..cerbsim_style import row2
 
 

@@ -88,14 +88,10 @@ class GeometryComponent(ViewTab):
         if scene is not None:
             self.clipping.center = 0.5 * (scene.bounding_box[1] + scene.bounding_box[0])
 
-    def _on_pick_select(self, event, kind="face"):
-        self.selection.hover(event, kind)
-
-    def _on_pick_out(self, ev):
-        self.selection.out(ev)
-
-    def _on_pick_background(self, ev):
-        self.selection.background(ev)
+    def pick_handlers(self):
+        return {"on_select": lambda ev, kind: self.selection.hover(ev, kind),
+                "on_out": lambda ev: self.selection.out(ev),
+                "on_background": lambda ev: self.selection.background(ev)}
 
 
 # Register with the component registry

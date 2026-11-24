@@ -14,7 +14,6 @@ class MeshComponent(ViewTab):
         self.mesh = mesh.mesh if isinstance(mesh, ngs.Region) else mesh
         self._quality = None
         super().__init__(name, data, app_data)
-        self._pick_mesh = self.mesh
 
     def view_parts(self):
         return mesh_view(self.region_or_mesh, undo=self.undo_stack.push, **self.data)

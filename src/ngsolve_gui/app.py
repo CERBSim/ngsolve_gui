@@ -11,7 +11,7 @@ from .file_loader import load_file
 from ngapp.keybindings import KeybindingManager, keybinding_styles
 from .navigator import Navigator
 from .property_panel import empty_property_panel
-from .prop_widgets import Segmented, on_cls
+from .view.core.widgets import Segmented, on_cls
 from .settings import usersettings as us
 from . import cerbsim_style as cb
 from .cerbsim_style import theme, kb_theme, flex_fill, panel_full

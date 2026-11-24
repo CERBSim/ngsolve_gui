@@ -1,7 +1,7 @@
 from ngapp.components import *
 
 from ..view.ngsolve.geometry import LABELS
-from ..prop_widgets import Section, PickPill, field
+from ..view.core.widgets import Section, PickPill, field
 from ..cerbsim_style import chk_inline, field_label, gap_sm
 
 

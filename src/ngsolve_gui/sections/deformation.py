@@ -1,6 +1,6 @@
 from ngapp.components import *
 
-from ..prop_widgets import Section, Segmented, field
+from ..view.core.widgets import Section, Segmented, field
 
 
 class DeformationSection(Section):

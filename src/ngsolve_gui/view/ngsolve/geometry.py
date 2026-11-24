@@ -91,7 +91,7 @@ class GeometryLayer(Layer):
         self.show_faces = self.observable("show_faces", True)
         self.show_edges = self.observable("show_edges", True)
         self.show_vertices = self.observable("show_vertices", False)
-        self.hidden = Observable(frozenset(), "hidden_entities")
+        self.hidden = self.observable("hidden_entities", frozenset(), converter=frozenset)
 
     def attach(self, view):
         super().attach(view)
@@ -118,6 +118,7 @@ class GeometryLayer(Layer):
         if items:
             self.hidden.value = self.hidden.value | set(items)
             self.selection.items.value = ()
+            self.selection.forget_hover()
 
     def show_all(self):
         self.hidden.value = frozenset()
@@ -152,14 +153,7 @@ class GeometryLayer(Layer):
 
         def push_alphas():
             self.hidden.value
-            subs = (r.faces, r.edges, r.vertices)
-            if any(getattr(s, "colors", None) is None for s in subs):
-                return
-            alphas = self.alphas(*(len(s.colors) // 4 for s in subs))
-            for sub, alpha in zip(subs, alphas):
-                colors = sub.colors
-                colors[3::4] = alpha
-                sub.set_colors(colors)
+            self._apply_alphas(r)
             self.view.render()
 
         def push_selection():
@@ -183,6 +177,21 @@ class GeometryLayer(Layer):
 
         for fn in (push_visible, push_alphas, push_selection, push_pick_modes):
             self.effect(fn)
+
+    def wire(self, scene):
+        # the colors of new renderers exist once the scene updated them
+        if self.renderer is not None:
+            self._apply_alphas(self.renderer)
+
+    def _apply_alphas(self, r):
+        subs = (r.faces, r.edges, r.vertices)
+        if any(getattr(s, "colors", None) is None for s in subs):
+            return
+        alphas = untracked(lambda: self.alphas(*(len(s.colors) // 4 for s in subs)))
+        for sub, alpha in zip(subs, alphas):
+            colors = sub.colors
+            colors[3::4] = alpha
+            sub.set_colors(colors)
 
 
 class Selection(Part):
@@ -298,17 +307,16 @@ class Selection(Part):
             solid = self.pick_solid.value and result.geo_type == 2
             if solid:
                 index = int(layer.renderer.faces._solid_ids[result.index])
-                if ("solid", index) in layer.hidden.value:
-                    picking.clear_highlight()
-                    picking.overlay.hide()
-                    scene._render_highlight()
-                    return
                 name = getattr(self.context.entity("solid", index), "name", "") or ""
                 text = f"{'Solid':<8s}{index:<6d} {name:<12s} {coords}"
                 item = ("solid", index)
             else:
                 text = f"{result.kind_label:<8s}{result.index:<6d} {result.name or '':<12s} {coords}"
                 item = (KINDS.get(result.geo_type, "face"), result.index)
+            if item in layer.hidden.value:
+                self._click = None
+                self.forget_hover()
+                return
             for hl in picking.highlights:
                 hl.renderer_id = event.obj_id
                 hl.element_id = _NONE
@@ -329,6 +337,15 @@ class Selection(Part):
             scene._render_highlight()
         except Exception:
             picking.overlay.hide()
+
+    def forget_hover(self):
+        """Drop the hover highlight and card (the entity went away)."""
+        picking = self.view.part("picking")
+        self._last = None
+        picking.clear_highlight()
+        self._show_selection(picking)
+        if self.view.scene is not None:
+            self.view.scene._render_highlight()
 
     def out(self, ev):
         picking = self.view.part("picking")
@@ -376,7 +393,7 @@ class Meshing(Part):
         the thread and an event set when meshing ended."""
         import netgen.meshing as ngm
         import ngsolve as ngs
-        from ...meshing_preview import get_terminate, set_terminate
+        from .preview import get_terminate, set_terminate
 
         geo = ngocc.OCCGeometry(self.context.geo.shape)
         options = self.options()

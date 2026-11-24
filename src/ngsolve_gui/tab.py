@@ -9,7 +9,7 @@ from webgpu.clipping import Clipping
 from .property_panel import PropertyPanelMixin
 from .settings import usersettings
 from .undo import UndoStack
-from .view.core import Binding, Part, Picking, Raw, SettingsDefaults, Tool, Viewport
+from .view.core import Binding, Part, Picking, SettingsDefaults, Tool, Viewport
 from .view.core.tools.bookmarks import Bookmarks
 from .view.core.tools.camera import CameraTools, Gizmos
 from .view.core.tools.clipping import ClippingTools
@@ -28,15 +28,7 @@ class _TabTools(Part):
         self.tab = tab
 
     def tools(self):
-        tab, view = self.tab, self.view
-        tools = []
-        if tab._camera_linkable():
-            tools.append(Tool(5, tab._link_button))
-        if hasattr(tab, "wireframe_visible") and view.part("wireframe") is None:
-            tools.append(Tool(20, lambda: view.tool_button(
-                "mdi-grid", "Wireframe  ·  w", tab.wireframe_visible.toggle,
-                active=tab.wireframe_visible)))
-        return tools
+        return [Tool(5, self.tab._link_button)] if self.tab._camera_linkable() else []
 
     def bindings(self):
         return [
@@ -47,9 +39,7 @@ class _TabTools(Part):
 
 class ViewTab(PropertyPanelMixin, Div):
     """Subclasses set their data attributes (``mesh``, ``cf``, ``geo``) before
-    calling ``__init__``. They either add layers in ``view_parts()`` or
-    implement ``draw()``, which passes the renderers to ``show()``. Key
-    bindings beyond the view's come from ``tab_keybindings()``."""
+    calling ``__init__`` and add their parts in ``view_parts()``."""
 
     _picking_always_active = False
 
@@ -59,8 +49,6 @@ class ViewTab(PropertyPanelMixin, Div):
         self.app_data = app_data
         self.icon = "mdi-vector-triangle"
         self.undo_stack = UndoStack()
-        self._last_pick = None
-        self._pick_mesh = None
 
         data_dict = data if isinstance(data, dict) else {}
         saved = app_data.saved_settings()
@@ -91,15 +79,11 @@ class ViewTab(PropertyPanelMixin, Div):
             defaults=SettingsDefaults(usersettings), state=saved)
         self.picking = Picking(
             self._pick_result, lambda r: self._pick_info(r),
-            always=self._picking_always_active,
-            on_select=lambda ev, kind: self._on_pick_select(ev, kind),
-            on_out=lambda ev: self._on_pick_out(ev),
-            on_background=lambda ev: self._on_pick_background(ev))
-        self._raw = Raw("scene")
+            always=self._picking_always_active, **self.pick_handlers())
         self.gizmos = Gizmos()
         with view.hold():
             view.add(*self.view_parts())
-            view.add(self._raw, self.gizmos, CameraTools(axes=self._supports_clipping()),
+            view.add(self.gizmos, CameraTools(axes=self._supports_clipping()),
                      _TabTools(self))
             if self._supports_clipping():
                 view.add(ClippingTools(self.use_global_clipping))
@@ -125,15 +109,6 @@ class ViewTab(PropertyPanelMixin, Div):
 
     # -- view --------------------------------------------------------------
 
-    def show(self, renderers, pickables=(), pick_mesh=None):
-        """Draw the renderers (gizmos are added by the view); returns the scene."""
-        self._pick_mesh = pick_mesh
-        draws = self.view.draws
-        self._raw.set(renderers, pickables)
-        if self.view.draws == draws:
-            self.view.draw()
-        return self.scene
-
     def view_parts(self):
         """Parts added to the view before the generic ones."""
         return []
@@ -153,32 +128,8 @@ class ViewTab(PropertyPanelMixin, Div):
         return self.view.wgpu.scene
 
     @property
-    def pick_overlay(self):
-        return self.picking.overlay
-
-    @property
     def picking_enabled(self):
         return self.picking.enabled
-
-    @property
-    def coordinate_axes(self):
-        return self.gizmos.axes
-
-    @property
-    def navigation_cube(self):
-        return self.gizmos.navcube
-
-    @property
-    def axes_visible(self):
-        return self.gizmos.axes_visible
-
-    @property
-    def navcube_visible(self):
-        return self.gizmos.navcube_visible
-
-    @property
-    def clipping_enabled(self):
-        return self.view.part("clipping").enabled
 
     def redraw(self):
         self.view.redraw()
@@ -189,26 +140,11 @@ class ViewTab(PropertyPanelMixin, Div):
     def reset_camera(self):
         self.view.fit()
 
-    def set_view(self, plane):
-        self.view.set_view(plane)
-
-    def set_orthographic(self, value):
-        self.view.set_orthographic(value)
-
-    def toggle_clipping(self):
-        self.clipping_enabled.toggle()
-
-    def clip_along_axis(self, axis):
-        self.view.part("clipping").along_axis(axis)
-
-    def reset_clipping(self):
-        self.view.part("clipping").reset()
-
     def undo_last(self):
         """Revert the most recent undoable action (region hides etc.)."""
         label = self.undo_stack.undo()
         if label:
-            self.pick_overlay.show_info("Undone", [("action", label)])
+            self.picking.overlay.show_info("Undone", [("action", label)])
 
     def saved_state(self):
         """Saved settings: the tab's observables and the view's state."""
@@ -235,12 +171,7 @@ class ViewTab(PropertyPanelMixin, Div):
     # -- key bindings -------------------------------------------------------
 
     def get_keybindings(self):
-        return self.view.keymap(self.tab_keybindings())
-
-    def tab_keybindings(self):
-        """Bindings of the tab in the format of ngapp.keybindings; modes with
-        a trigger the view uses too are merged."""
-        return {"flat": [], "modes": []}
+        return self.view.keymap({"flat": [], "modes": []})
 
     # -- camera --------------------------------------------------------------
 
@@ -288,7 +219,7 @@ class ViewTab(PropertyPanelMixin, Div):
         tip = self.view.dock_tip(computed(
             lambda: "Camera shared with other views of this mesh  ·  click to detach"
             if shared.value else "Camera detached  ·  click to share again"))
-        from .prop_widgets import on_cls
+        from .view.core.widgets import on_cls
         btn = Div(icon, tip, ui_class=on_cls(cb.vp_tool, cb.vp_tool_on, shared))
         btn.on("click", lambda e=None: self.toggle_camera_link())
         return btn
@@ -330,26 +261,14 @@ class ViewTab(PropertyPanelMixin, Div):
     def _pick_result(self, event, kind):
         from ngsolve_webgpu.pick import MeshPickResult
 
-        return MeshPickResult(event, self._pick_mesh, self.scene.options, kind=kind)
+        mesh = self.view.part("mesh")
+        return MeshPickResult(event, mesh.base_data if mesh is not None else None,
+                              self.scene.options, kind=kind)
 
-    def _on_pick_select(self, event, kind="surface"):
-        self.picking.select(event, kind)
-        self._last_pick = self.picking.last
-
-    def _on_pick_out(self, ev):
-        self._last_pick = None
-        self.picking.out(ev)
-
-    def _on_pick_background(self, ev):
-        self._last_pick = None
-        self.picking.background(ev)
-
-    @property
-    def _highlights(self):
-        return self.picking.highlights
-
-    def _clear_highlight(self):
-        self.picking.clear_highlight()
+    def pick_handlers(self):
+        """``on_select``, ``on_out``, ``on_background`` replacing the default
+        hover reaction of ``Picking`` (geometry selection)."""
+        return {}
 
     def _kind_label(self, result):
         """Element kind label. The 'surface' renderer draws codim-0 (VOL)

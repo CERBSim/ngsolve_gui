@@ -2,7 +2,7 @@
 
 from ngapp.components import *
 
-from .... import cerbsim_style as cb
+import cerbsim_ngapp_style as cb
 from ..part import Part, Tool
 
 

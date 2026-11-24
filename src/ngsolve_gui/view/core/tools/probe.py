@@ -4,8 +4,8 @@ import math
 
 from ngapp.components import *
 
-from .... import cerbsim_style as cb
-from ....prop_widgets import Segmented
+import cerbsim_ngapp_style as cb
+from ..widgets import Segmented
 from ..part import Part, Tool
 
 

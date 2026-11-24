@@ -9,6 +9,30 @@ from ngsolve_webgpu.mesh import MeshData, MeshElements2d, MeshWireframe2d
 from ..core.part import Layer
 
 
+def set_terminate(flag: bool):
+    """Set netgen's global meshing terminate flag, if the binding is available.
+
+    The binding (`_SetTerminate`) requires a netgen build that exposes it; until
+    then this is a no-op and abort falls back to the footer's thread interrupt.
+    """
+    try:
+        from netgen.libngpy._meshing import _SetTerminate
+
+        _SetTerminate(bool(flag))
+    except Exception:
+        pass
+
+
+def get_terminate() -> bool:
+    """Whether a meshing abort has been requested (False if binding absent)."""
+    try:
+        from netgen.libngpy._meshing import _GetTerminate
+
+        return bool(_GetTerminate())
+    except Exception:
+        return False
+
+
 class MeshingPreview(Layer):
     """The growing surface mesh over the geometry edges (its faces are hidden
     while a mesh is shown). ``start(mesh)``, ``refresh()``, ``end()``."""

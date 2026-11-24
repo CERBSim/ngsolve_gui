@@ -6,7 +6,7 @@ Always the FIRST section, always expanded. Toggles are rendered as option chips
 
 from ngapp.components import *
 
-from ..prop_widgets import Section, Chip, chip_row, Toggle, field, MoreDisclosure
+from ..view.core.widgets import Section, Chip, chip_row, Toggle, field, MoreDisclosure
 from ..cerbsim_style import prop_flab, input_tiny, gap_sm
 
 

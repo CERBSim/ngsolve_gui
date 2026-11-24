@@ -3,7 +3,7 @@
 from ngapp.components import Div, Observable
 from webgpu import CoordinateAxes, NavigationCube
 
-from .... import cerbsim_style as cb
+import cerbsim_ngapp_style as cb
 from ..part import Binding, Layer, Part, Tool
 
 

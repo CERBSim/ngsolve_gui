@@ -160,7 +160,7 @@ class Contact(Layer):
         region = self.region_or_mesh
         if not isinstance(self.contact, list):
             return [ContactPairs(region, self.contact)]
-        from ...region_colors import get_random_colors
+        from ..core.widgets.region_colors import get_random_colors
 
         colors = get_random_colors(len(self.contact))
         return [MultipleRenderer([ContactPairs(region, c, color=col)

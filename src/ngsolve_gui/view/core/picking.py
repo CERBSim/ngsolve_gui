@@ -3,7 +3,7 @@
 from ngapp.components import Observable
 
 from .part import Binding, Part
-from ...pick_overlay import PickOverlay
+from .widgets.pick_overlay import PickOverlay
 
 _NONE = 0xFFFFFFFF
 

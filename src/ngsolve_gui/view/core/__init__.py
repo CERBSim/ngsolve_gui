@@ -1,5 +1,6 @@
 """Viewport core: no ngsolve or netgen imports in this package."""
 
+from .backends import register_backend, view_target
 from .defaults import Defaults, SettingsDefaults
 from .keymap import merge as merge_keymap
 from .context import MeshContext

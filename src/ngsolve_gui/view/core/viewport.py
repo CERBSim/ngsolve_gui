@@ -12,7 +12,7 @@ from webgpu.clipping import Clipping
 from webgpu.labels import Labels
 from webgpu.webgpu_api import Color
 
-from ... import cerbsim_style as cb
+import cerbsim_ngapp_style as cb
 from .defaults import Defaults
 from .keymap import merge
 from .part import Layer, has_role
@@ -314,7 +314,7 @@ class Viewport(Div):
 
     def tool_button(self, icon, tip, handler, active=None, dock=True):
         """A dock button, highlighted while ``active``."""
-        from ...prop_widgets import on_cls
+        from .widgets import on_cls
 
         tooltip = self.dock_tip(tip) if dock else QTooltip(tip)
         cls = on_cls(cb.vp_tool, cb.vp_tool_on, active) if active is not None else str(cb.vp_tool)

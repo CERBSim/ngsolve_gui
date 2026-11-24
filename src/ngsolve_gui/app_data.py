@@ -4,7 +4,7 @@ import weakref
 
 from ngsolve_webgpu import *
 from webgpu.camera import Camera
-from ngapp.components import Observable, batch, computed
+from ngapp.components import Observable, batch, computed, creating_ui
 
 _uids = itertools.count(1)
 
@@ -100,7 +100,8 @@ class AppData:
                "uid": next(_uids)}
         self._building = rec
         try:
-            component = cls(name, *args, **kwargs)
+            with creating_ui():
+                component = cls(name, *args, **kwargs)
         finally:
             self._building = None
         self._components[rec["uid"]] = component

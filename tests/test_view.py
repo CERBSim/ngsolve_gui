@@ -33,16 +33,26 @@ def test_new_scene_gets_the_input_handlers():
     assert {"dblclick", "drag", "wheel"} <= set(view.scene.input_handler._callbacks)
 
 
-def test_core_imports_no_ngsolve_and_no_app():
-    for path in Path(core.__file__).parent.rglob("*.py"):
+def _imports(root):
+    """(path, absolute module) of every import below ``root``."""
+    for path in root.rglob("*.py"):
+        package = ".".join(path.relative_to(root.parents[1]).parent.parts)
         for node in ast.walk(ast.parse(path.read_text())):
-            names = []
             if isinstance(node, ast.Import):
-                names = [a.name for a in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.level == 0:
-                names = [node.module]
-            for name in names:
-                assert name.split(".")[0] not in ("ngsolve", "netgen"), (path, name)
+                for a in node.names:
+                    yield path, a.name
+            elif isinstance(node, ast.ImportFrom):
+                base = package.split(".")[:len(package.split(".")) - node.level + 1] if node.level else []
+                yield path, ".".join(base + ([node.module] if node.module else []))
+
+
+def test_core_imports_no_ngsolve_and_no_app():
+    view = Path(core.__file__).parents[1]
+    for path, name in _imports(view):
+        # the view toolkit does not reach into the GUI shell
+        assert not name.startswith("ngsolve_gui.") or name.startswith("ngsolve_gui.view"), (path, name)
+        if "core" in path.relative_to(view).parts:
+            assert name.split(".")[0] not in ("ngsolve", "netgen"), (path, name)
     code = ("import sys, ngsolve_gui.view.core\n"
             "bad = [m for m in ('ngsolve_gui.app', 'ngsolve_gui.app_data',"
             " 'ngsolve_gui.file_loader') if m in sys.modules]\n"

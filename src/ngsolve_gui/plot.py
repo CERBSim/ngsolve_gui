@@ -111,11 +111,22 @@ class PlotComponent(PropertyPanelMixin, Div):
             plot.draw(fig)
 
 
+def is_plot(obj) -> bool:
+    if isinstance(obj, (list, tuple)):
+        return any(is_plot(item) for item in obj)
+    if isinstance(obj, dict):
+        return any(key in obj for key in ("data", "layout", "frames"))
+    mod = type(obj).__module__
+    return mod.startswith("plotly.") or mod.startswith("matplotlib.")
+
+
 # Register with the component registry
 from .registry import register_component
+from .view.core.backends import register_backend
 
 register_component(
     "plot",
     icon="mdi-chart-line",
     component_class=PlotComponent,
 )
+register_backend("plot", lambda obj: ("plot", obj) if is_plot(obj) else None)

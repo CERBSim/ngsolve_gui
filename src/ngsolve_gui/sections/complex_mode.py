@@ -6,7 +6,7 @@ real/imag/abs/arg display and controlling phase animation.
 
 from ngapp.components import *
 
-from ..prop_widgets import Section, Toggle, field
+from ..view.core.widgets import Section, Toggle, field
 
 
 class ComplexSection(Section):
