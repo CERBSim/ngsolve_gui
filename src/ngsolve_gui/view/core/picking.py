@@ -129,6 +129,18 @@ class Picking(Part):
         self.overlay.hide()
         self.view.scene._render_highlight()
 
+    def mark_regions(self, marks):
+        """Mark regions, ``marks`` is ``{kind: region indices}``: pick kinds
+        of the pickable renderers and ``mark_kind`` of parts; empty clears."""
+        for part in self.view.parts:
+            if getattr(part, "mark_kind", None) is not None:
+                part.mark(marks.get(part.mark_kind, ()))
+            for r, kind in getattr(part, "pickables", lambda: [])():
+                if hasattr(r, "region_selection"):
+                    r.region_selection.set(marks.get(kind, ()))
+        if self.view.scene is not None:
+            self.view.scene._render_highlight()
+
     def clear_highlight(self):
         for hl in self.highlights:
             hl.renderer_id = 0

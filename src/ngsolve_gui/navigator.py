@@ -30,7 +30,8 @@ _TYPE_GROUPS = {
 
 
 class Navigator(Div):
-    def __init__(self, app_data, on_load_file=None):
+    def __init__(self, app_data, on_load_file=None, explorer=None):
+        """``explorer(query)`` builds the object list below the tabs."""
         self.app_data = app_data
         self._query = Observable("", "nav_query", converter=lambda v: (v or "").strip().lower())
         self._collapsed = Observable(frozenset(), "nav_collapsed")
@@ -69,6 +70,7 @@ class Navigator(Div):
 
         scroll = Div(
             For(computed(self._groups), self._group, key=lambda g: g[0], reactive=True),
+            *([explorer(self._query)] if explorer is not None else []),
             Div(ui_style="height: 12px;"),
             ui_class=panel_scroll,
         )

@@ -17,6 +17,8 @@ from . import cerbsim_style as cb
 from .cerbsim_style import theme, kb_theme, flex_fill, panel_full
 from .system_monitor import SystemMonitor, available as system_monitor_available
 from .footer import StatusFooter
+from .workspace.explorer import Explorer
+from .workspace.ngsolve import region_marks
 
 
 class TabHost(Div):
@@ -135,6 +137,7 @@ class NGSolveGui(App):
         self.script_args = list(script_args or [])
         self.app_data = AppData()
         app_data = self.app_data
+        self.workspace = app_data.workspace
 
         # -- Toolbar buttons (compact flat icon buttons, muted like the designer) --
         def _tbtn(icon, tip, handler=None):
@@ -196,7 +199,8 @@ class NGSolveGui(App):
         )
 
         self.kb = KeybindingManager(self, theme=kb_theme)
-        self.navigator = Navigator(app_data, self._load_file)
+        self.navigator = Navigator(app_data, self._load_file, lambda query: Explorer(
+            self.workspace, query, self._draw_object, self._highlight_region))
         # each component owns its property panel, the host shows the current one
         self.property_host = TabHost(
             app_data, self._property_panel, empty_property_panel, ui_class=panel_full)
@@ -319,6 +323,27 @@ class NGSolveGui(App):
             if comp is not None and hasattr(comp, "sync_camera"):
                 comp.sync_camera()
             self.kb.set_component(comp)
+
+    def _draw_object(self, name, mesh=None, title=None):
+        import ngsolve
+
+        obj = self.workspace.get(name)
+        if obj is None:
+            return
+        if mesh is None:
+            ngsolve.Draw(obj, name=title or name)
+        elif (on := self.workspace.get(mesh)) is not None:
+            ngsolve.Draw(obj, on, name=title or name)
+
+    def _highlight_region(self, name, region):
+        """Highlight a region of the mesh ``name`` if the current view shows it."""
+        view = getattr(self.active_component, "view", None)
+        picking = view.part("picking") if view is not None else None
+        if picking is None:
+            return
+        mesh = self.workspace.get(name)
+        shown = region is not None and getattr(self.active_component, "mesh", None) is mesh
+        picking.mark_regions(region_marks(mesh, region[0], region[1]) if shown else {})
 
     def _load_file(self):
         from ngapp.utils import EnvironmentType, get_environment

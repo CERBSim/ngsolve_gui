@@ -187,6 +187,52 @@ class Elements3d(MeshLayer):
         self.effect(push_subdivision)
 
 
+class _Tint(MeshSegments):
+    """Lines blended over the scene (transparent pass)."""
+
+    def get_export_descriptor(self, options, buffer_registry):
+        desc = super().get_export_descriptor(options, buffer_registry)
+        desc.pass_type, desc.depth_write, desc.blend = "transparent", False, "premultiplied"
+        return desc
+
+
+class BoundaryMarks(Layer):
+    """Marked boundaries of a 2D mesh as thick lines, see ``Picking.mark_regions``."""
+
+    key = "boundary_marks"
+    order = 45
+    requires = ("mesh",)
+    mark_kind = "segment"
+    color = (1.0, 0.5, 0.0, 0.6)
+
+    def __init__(self):
+        super().__init__()
+        self._marked = ()
+
+    def attach(self, view):
+        super().attach(view)
+        self.context = view.part("mesh")
+
+    def applies(self):
+        return self.context.dim == 2
+
+    def _colors(self):
+        n = len(self.context.base_data.boundary_names)
+        return [self.color if i in self._marked else (0, 0, 0, 0) for i in range(n)]
+
+    def build(self):
+        self.context.revision.value
+        r = _Tint(self.context.data.value, clipping=self.view.clipping,
+                  colors=untracked(self._colors))
+        r.thickness = 0.012
+        return [r]
+
+    def mark(self, indices):
+        self._marked = tuple(indices)
+        if self.renderer is not None:
+            self.renderer.set_colors(self._colors())
+
+
 class Edges(Layer):
     """The 1D elements as lines of a given thickness (geometry edges)."""
 

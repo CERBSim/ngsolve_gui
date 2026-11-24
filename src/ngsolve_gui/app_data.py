@@ -31,6 +31,9 @@ class AppData:
         self._timer_lock = threading.Lock()
         self._clipping = Clipping()
         self._cameras = {}
+        from .workspace import Workspace
+
+        self.workspace = Workspace()
 
     @property
     def clipping(self):

@@ -12,6 +12,7 @@ import ngsolve as ngs
 os.environ.setdefault("MPLBACKEND", "Agg")
 
 from .app_data import AppData
+from .workspace import identifier
 from .function import FunctionComponent
 from .geometry import GeometryComponent
 from .mesh import MeshComponent
@@ -20,6 +21,7 @@ from ngapp.components import Component
 
 _appdata: AppData
 _redraw_func: Callable | None = None
+_workspace = None
 
 
 def _file_extension_matches(path: Path, suffixes: Iterable[str]) -> bool:
@@ -33,28 +35,28 @@ def _build_loader_snippet(filename: str, name: str) -> tuple[str, str]:
     """
     path = Path(filename)
     ext = path.suffix.lower()
+    var = identifier(path.name.split(".")[0])
 
     if _file_extension_matches(path, (".vol", ".vol.gz")):
         return f"""import ngsolve
-mesh = ngsolve.Mesh('{filename}')
-ngsolve.Draw(mesh, '{name}')""", "<ngsolve_gui:mesh>"
+{var} = ngsolve.Mesh('{filename}')
+ngsolve.Draw({var}, '{name}')""", "<ngsolve_gui:mesh>"
 
     if ext in {".step", ".iges", ".stp", ".brep"}:
         return f"""import netgen.occ
 import ngsolve
-geometry = netgen.occ.OCCGeometry("{filename}")
-ngsolve.Draw(geometry, name='{name}')""", "<ngsolve_gui:geometry>"
+{var} = netgen.occ.OCCGeometry("{filename}")
+ngsolve.Draw({var}, name='{name}')""", "<ngsolve_gui:geometry>"
 
     if ext == ".pkl":
         return f"""import netgen.occ
 import ngsolve, pickle
 import netgen.occ
-obj = pickle.load(open("{filename}", "rb"))
-print("Loaded object of type", type(obj))
-if isinstance(obj, netgen.occ.TopoDS_Shape):
-    obj = netgen.occ.OCCGeometry(obj)
-print("Loaded object of type", type(obj))
-ngsolve.Draw(obj, name='{name}')""", "<ngsolve_gui:pickle>"
+{var} = pickle.load(open("{filename}", "rb"))
+if isinstance({var}, netgen.occ.TopoDS_Shape):
+    {var} = netgen.occ.OCCGeometry({var})
+print("Loaded object of type", type({var}))
+ngsolve.Draw({var}, name='{name}')""", "<ngsolve_gui:pickle>"
 
     if ext == ".py":
         import tokenize
@@ -360,6 +362,8 @@ def DrawImpl(
     Provide `mesh` for general coefficient functions; grid functions use their space
     mesh automatically. The function returns the created component instance.
     """
+    if _workspace is not None:
+        _workspace.refresh()
     data = dict(**kwargs)
     if isinstance(obj, ngocc.TopoDS_Shape):
         obj = ngocc.OCCGeometry(obj)
@@ -417,8 +421,9 @@ def load_file(filename, app):
     :param app: The running application instance providing app data and redraw hooks.
     :return: ``(thread, done_event)`` tuple, or ``None`` if no loading was started.
     """
-    global _appdata, _redraw_func
+    global _appdata, _redraw_func, _workspace
     _appdata = app.app_data
+    _workspace = app.app_data.workspace
     _redraw_func = app.redraw
     if filename is None:
         return None
@@ -444,7 +449,12 @@ def load_file(filename, app):
     sys.argv = [str(path)] + list(getattr(app, "script_args", None) or [])
 
     code = compile(source, compile_name, "exec")
-    return _run_script(code, script_globals, app)
+    if _workspace is not None:
+        _workspace.add_namespace(script_globals)
+    thread, done = _run_script(code, script_globals, app)
+    if _workspace is not None:
+        threading.Thread(target=lambda: (done.wait(), _workspace.refresh()), daemon=True).start()
+    return thread, done
 
 
 def DrawBadElements(mesh: ngs.Mesh, threshold_3d=100, threshold_2d=20, intorder=4):

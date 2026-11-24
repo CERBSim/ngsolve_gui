@@ -4,7 +4,7 @@
 import ngsolve as ngs
 
 from ..core.layers.field import ClipField, Surface
-from ..core.layers.mesh import Edges, Elements2d, Elements3d, Identifications, Segments, Wireframe
+from ..core.layers.mesh import BoundaryMarks, Edges, Elements2d, Elements3d, Identifications, Segments, Wireframe
 from ..core.layers.numbers import Numbers
 from ..core.layers.vectors import ClipVectorsLayer, Lic, SurfaceVectorsLayer, VectorStyle
 from ..core.modules.colormap import Colormap
@@ -36,7 +36,7 @@ def mesh_view(region_or_mesh, undo=None, **draw):
         Regions(undo=undo),
         ElementFilter(draw.get("el2d_bitarray"), draw.get("el3d_bitarray")),
         Wireframe(), Elements2d(), Segments(), Identifications(), Elements3d(),
-        Numbers(mesh.dim),
+        BoundaryMarks(), Numbers(mesh.dim),
     ]
 
 
@@ -60,6 +60,7 @@ def function_view(cf, region_or_mesh, undo=None, **draw):
         VectorStyle(),
         Wireframe(visible=draw.get("wireframe")),
         Surface(enabled=bool(draw.get("draw_surf", True))),
+        BoundaryMarks(),
         ClipField(enabled=draw_vol),
         Lic(enabled=draw_vol),
         Facet(draw.get("facet"), enabled=draw_vol),

@@ -34,10 +34,12 @@ class GeometryComponent(ViewTab):
         """Mesh the geometry in a thread and open the mesh in a new tab."""
         from .mesh import MeshComponent
         from .meshing_preview import get_app
+        from .workspace import identifier
 
         def on_mesh(mesh):
-            self.app_data.add_tab("Mesh_" + self.title, MeshComponent, {"obj": mesh},
-                                  self.app_data)
+            title = "Mesh_" + self.title
+            self.app_data.workspace.add(identifier(title), mesh)
+            self.app_data.add_tab(title, MeshComponent, {"obj": mesh}, self.app_data)
 
         def on_error(msg):
             self.quasar.dialog({"title": "Error generating mesh", "message": msg})
