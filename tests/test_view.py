@@ -73,10 +73,15 @@ def test_mesh_view_rebuilds_once_and_keeps_regions():
     drawn = [r for r in view.scene_objects.value if hasattr(r, "region_visibility")]
     assert drawn and all(r.region_visibility is view.part("regions").visibility for r in drawn)
 
+    # element filters use the bits of the visibility buffer, not own buffers
+    el3d = view.part("elements3d")
+    renderer = el3d.renderer
     tab.set_quality_threshold(0.0)
-    data = view.part("mesh").data.value
-    assert data is not view.part("mesh").base_data
-    assert view.part("elements3d").renderer.data is data
+    assert view.part("regions").visibility.element_counts == (0, mesh.ne)
+    assert el3d.renderer is not renderer and el3d.renderer.data is view.part("mesh").base_data
+    renderer, draws = el3d.renderer, view.draws
+    tab.set_quality_threshold(1e9)
+    assert el3d.renderer is renderer and view.draws == draws
 
 
 @standalone_app_test

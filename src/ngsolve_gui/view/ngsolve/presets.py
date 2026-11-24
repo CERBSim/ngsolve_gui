@@ -33,8 +33,8 @@ def mesh_view(region_or_mesh, undo=None, **draw):
         mesh_context(region_or_mesh),
         Curvature(mesh),
         Subdivision(draw.get("subdivision"), auto=by_curve_order),
-        ElementFilter(draw.get("el2d_bitarray"), draw.get("el3d_bitarray")),
         Regions(undo=undo),
+        ElementFilter(draw.get("el2d_bitarray"), draw.get("el3d_bitarray")),
         Wireframe(), Elements2d(), Segments(), Identifications(), Elements3d(),
         Numbers(mesh.dim),
     ]

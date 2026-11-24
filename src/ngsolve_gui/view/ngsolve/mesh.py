@@ -12,7 +12,7 @@ from ..core.part import Part
 def mesh_context(region_or_mesh):
     mesh = region_or_mesh.mesh if isinstance(region_or_mesh, ngs.Region) else region_or_mesh
     return MeshContext(
-        lambda **masks: MeshData(region_or_mesh, **masks),
+        MeshData(region_or_mesh),
         edge_names=[ed.name for ed in mesh.ngmesh.EdgeDescriptors()],
         curve_order=mesh.GetCurveOrder())
 

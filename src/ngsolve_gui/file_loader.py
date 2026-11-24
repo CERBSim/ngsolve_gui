@@ -483,10 +483,8 @@ def DrawBadElements(mesh: ngs.Mesh, threshold_3d=100, threshold_2d=20, intorder=
     _appdata.add_tab(
         "Bad Elements",
         MeshComponent,
-        mesh,
+        {"obj": mesh, "el2d_bitarray": el2d_bitarray, "el3d_bitarray": el3d_bitarray},
         _appdata,
-        el2d_bitarray=el2d_bitarray,
-        el3d_bitarray=el3d_bitarray,
     )
 
 
