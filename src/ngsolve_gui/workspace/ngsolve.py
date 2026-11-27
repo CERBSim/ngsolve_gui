@@ -3,7 +3,7 @@
 import ngsolve as ngs
 from netgen import occ
 
-from . import Entry, register_inspector
+from . import Entry, register_inspector, register_memory
 
 
 def _space(fes):
@@ -44,8 +44,9 @@ def _gf(name, gf):
         details += (("components", len(gf.components)),)
     if len(gf.vecs) > 1:
         details += (("multidim", len(gf.vecs)),)
+    parts = tuple((f".components[{i}]", ("components", i)) for i in range(len(gf.components)))
     return Entry(name, "GridFunction", "mdi-function-variant", details, drawable=True,
-                 on_mesh=True, mesh_id=id(fes.mesh))
+                 on_mesh=True, mesh_id=id(fes.mesh), parts=parts)
 
 
 def _bf(name, bf):
@@ -107,6 +108,46 @@ def inspect_ngsolve(name, obj):
         if isinstance(obj, types):
             return fn(name, obj)
     return None
+
+
+_BYTES_PER_ELEMENT = 300   # netgen and ngsolve mesh with topology, measured
+
+
+def _ram(obj):
+    if isinstance(obj, ngs.Mesh):
+        return obj.ne * _BYTES_PER_ELEMENT
+    if isinstance(obj, ngs.GridFunction):
+        return sum(v.size for v in obj.vecs) * (16 if obj.space.is_complex else 8)
+    if isinstance(obj, (ngs.FESpace, ngs.BilinearForm, ngs.LinearForm)):
+        return sum(m[1] for m in obj.__memory__)
+    return None
+
+
+def _vram(obj):
+    """Bytes of the GPU buffers of the views of obj: the shared buffers of a
+    mesh, the function values of a drawn function and its components."""
+    from ngsolve_webgpu.cf import FunctionData
+    from ngsolve_webgpu.mesh import shared_mesh_buffers
+    from webgpu.utils import gpu_bytes, gpu_owners
+
+    if isinstance(obj, ngs.Mesh):
+        return gpu_bytes(*shared_mesh_buffers(obj))
+    ids, parts = {id(obj)}, [obj]
+    while parts:   # drawn components count as the function
+        part = parts.pop()
+        if isinstance(part, ngs.GridFunction):
+            ids.update(id(c) for c in part.components)
+            parts.extend(part.components)
+    data = [d for d in gpu_owners() if isinstance(d, FunctionData) and id(d.cf) in ids]
+    return gpu_bytes(*({k: v for k, v in vars(d).items() if k != "mesh_data"} for d in data))
+
+
+@register_memory
+def memory_ngsolve(obj):
+    if not isinstance(obj, (ngs.Mesh, ngs.FESpace, ngs.GridFunction, ngs.BilinearForm,
+                            ngs.LinearForm, ngs.CoefficientFunction)):
+        return None
+    return _ram(obj), _vram(obj)
 
 
 def region_marks(mesh, kind, indices):

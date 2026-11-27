@@ -34,6 +34,9 @@ def test_workspace_lists_objects_and_highlights_regions():
     regions = ws.entries.value[0].regions
     assert ("material", (1,), "right") in regions
     assert ("boundary", tuple(range(1, 11)), "default") in regions
+    # memory: the unassembled form has none
+    _, _, rows = ws.memory_report()
+    assert [r[0] for r in rows] == ["mesh", "fes", "gf"] and all(r[2] > 0 for r in rows)
 
     app_data = AppData()
     tab = app_data.add_tab("m", MeshComponent, {"obj": mesh}, app_data)
@@ -53,3 +56,32 @@ def test_workspace_lists_objects_and_highlights_regions():
     mount(tab)
     tab.view.part("picking").mark_regions(region_marks(mesh2, "boundary", (1,)))
     assert [c[3] for c in tab.view.part("boundary_marks").renderer._user_colors] == [0, 0.6, 0, 0]
+
+
+def test_python_objects_list_their_members():
+    import ngsolve as ngs
+
+    import ngsolve_gui.workspace.ngsolve  # noqa: F401
+    from ngsolve_gui.workspace import Workspace
+
+    class Solver:
+        def __init__(self, mesh):
+            self.mesh = mesh
+            self.gf = ngs.GridFunction(ngs.H1(mesh, order=2) * ngs.H1(mesh, order=1))
+            self.u = self.gf.components[0]
+            self.me = self
+
+    mesh = ngs.Mesh(ngs.unit_square.GenerateMesh(maxh=0.3))
+    solver = Solver(mesh)
+    ws = Workspace()
+    ws.add_namespace({"mesh": mesh, "solver": solver})
+    ws.shown.value = True
+    assert ws._by_name["solver"].members == ("solver.mesh", "solver.gf", "solver.u")
+    assert ws._by_name["solver.gf"].members == ("solver.gf.components[0]", "solver.gf.components[1]")
+    assert ws.get("solver.gf.components[1]") is solver.gf.components[1]
+    # a stored component links to its function and is not counted again
+    assert ("part of", "solver.gf", "solver.gf") in ws._by_name["solver.u"].details
+    assert ws.memory("solver.u") == ws.memory("solver.gf") == (solver.gf.vec.size * 8, 0)
+    # the mesh counts under its own name, the solver gets the rest
+    _, _, rows = ws.memory_report()
+    assert [r[0] for r in rows] == ["mesh", "solver"] and rows[1][2] == solver.gf.vec.size * 8
